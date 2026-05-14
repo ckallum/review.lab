@@ -1,0 +1,45 @@
+{
+  "_description": "Base ESLint config installed by configure-claude.js. Agent-directed rules that encode conventions as machine-checkable constraints.",
+  "env": {
+    "es2022": true,
+    "node": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module"
+  },
+  "rules": {
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-new-func": "error",
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "no-debugger": "error",
+    "no-var": "error",
+    "prefer-const": "error",
+    "eqeqeq": ["error", "always"],
+    "no-throw-literal": "error",
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-shadow": "warn",
+    "no-redeclare": "error",
+    "no-undef": "error",
+    "no-constant-condition": "error",
+    "no-dupe-keys": "error",
+    "no-duplicate-case": "error",
+    "no-unreachable": "error",
+    "no-unsafe-negation": "error",
+    "no-unsafe-optional-chaining": "error",
+    "no-loss-of-precision": "error",
+    "no-useless-escape": "warn",
+    "no-empty": ["warn", { "allowEmptyCatch": true }],
+    "curly": ["warn", "multi-line"],
+    "default-case-last": "warn",
+    "grouped-accessor-pairs": "warn",
+    "no-constructor-return": "error",
+    "no-self-compare": "error",
+    "no-template-curly-in-string": "warn",
+    "no-unmodified-loop-condition": "warn",
+    "prefer-template": "warn",
+    "no-useless-concat": "warn",
+    "object-shorthand": "warn"
+  }
+}

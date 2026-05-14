@@ -1,0 +1,297 @@
+{
+  "_notes": "Bash(rm:*) is intentionally allowed — guarded by deny-rm-dangerous and deny-rm-rf-cwd rules for defense-in-depth",
+  "mode": "autonomous",
+  "permissions": {
+    "autonomous": {
+      "allow": [
+        "Read",
+        "Glob",
+        "Grep",
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "WebFetch",
+        "WebSearch",
+        "Bash(git:*)",
+        "Bash(npm:*)",
+        "Bash(npx:*)",
+        "Bash(pnpm:*)",
+        "Bash(yarn:*)",
+        "Bash(bun:*)",
+        "Bash(node:*)",
+        "Bash(gh:*)",
+        "Bash(ls:*)",
+        "Bash(cat:*)",
+        "Bash(head:*)",
+        "Bash(tail:*)",
+        "Bash(wc:*)",
+        "Bash(find:*)",
+        "Bash(grep:*)",
+        "Bash(rg:*)",
+        "Bash(jq:*)",
+        "Bash(which:*)",
+        "Bash(pwd:*)",
+        "Bash(echo:*)",
+        "Bash(mkdir:*)",
+        "Bash(cp:*)",
+        "Bash(mv:*)",
+        "Bash(touch:*)",
+        "Bash(diff:*)",
+        "Bash(sort:*)",
+        "Bash(uniq:*)",
+        "Bash(tee:*)",
+        "Bash(sed:*)",
+        "Bash(awk:*)",
+        "Bash(curl:*)",
+        "Bash(wget:*)",
+        "Bash(docker:*)",
+        "Bash(python:*)",
+        "Bash(python3:*)",
+        "Bash(pip:*)",
+        "Bash(cargo:*)",
+        "Bash(make:*)",
+        "Bash(cmake:*)",
+        "Bash(go:*)",
+        "Bash(pytest:*)",
+        "Bash(vitest:*)",
+        "Bash(jest:*)",
+        "Bash(playwright:*)",
+        "Bash(tsc:*)",
+        "Bash(eslint:*)",
+        "Bash(prettier:*)",
+        "Bash(rm:*)",
+        "Bash(tmux:*)",
+        "Bash(env:*)",
+        "Bash(printenv:*)",
+        "Bash(date:*)",
+        "Bash(stat:*)",
+        "Bash(file:*)",
+        "Bash(realpath:*)",
+        "Bash(dirname:*)",
+        "Bash(basename:*)",
+        "Bash(xargs:*)",
+        "Bash(tr:*)",
+        "Bash(cut:*)"
+      ]
+    },
+    "supervised": {
+      "allow": [
+        "Read",
+        "Glob",
+        "Grep",
+        "WebFetch",
+        "WebSearch",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git log:*)",
+        "Bash(git branch:*)",
+        "Bash(ls:*)",
+        "Bash(cat:*)",
+        "Bash(head:*)",
+        "Bash(tail:*)",
+        "Bash(find:*)",
+        "Bash(grep:*)",
+        "Bash(rg:*)",
+        "Bash(jq:*)",
+        "Bash(which:*)",
+        "Bash(pwd:*)",
+        "Bash(echo:*)",
+        "Bash(wc:*)"
+      ]
+    },
+    "lockdown": {
+      "allow": [
+        "Read",
+        "Glob",
+        "Grep",
+        "Bash(git log:*)",
+        "Bash(git status:*)",
+        "Bash(ls:*)",
+        "Bash(pwd:*)"
+      ]
+    }
+  },
+  "rules": {
+    "deny": [
+      {
+        "id": "deny-force-push",
+        "tool": "Bash",
+        "match": { "command": "git\\s+push.*(-f\\b|--force)" },
+        "reason": "Destroys remote history"
+      },
+      {
+        "id": "deny-hard-reset",
+        "tool": "Bash",
+        "match": { "command": "git\\s+reset\\s+--hard" },
+        "reason": "Discards uncommitted work"
+      },
+      {
+        "id": "deny-git-clean",
+        "tool": "Bash",
+        "match": { "command": "git\\s+clean\\s+-[a-zA-Z]*f" },
+        "reason": "Deletes untracked files"
+      },
+      {
+        "id": "deny-rm-dangerous",
+        "tool": "Bash",
+        "match": { "command": "rm\\s+-[a-zA-Z]*r.*(/ |~/|\\$HOME|\\.\\.)" },
+        "reason": "Recursive delete of root/home/parent"
+      },
+      {
+        "id": "deny-rm-rf-cwd",
+        "tool": "Bash",
+        "match": { "command": "rm\\s+-[a-zA-Z]*rf?\\s+\\.(\\s|/|$)" },
+        "reason": "Recursive force-delete from cwd"
+      },
+      {
+        "id": "deny-curl-pipe-sh",
+        "tool": "Bash",
+        "match": { "command": "(curl|wget).*\\|\\s*(bash|sh|node)" },
+        "reason": "Remote code execution"
+      },
+      {
+        "id": "deny-chmod-777",
+        "tool": "Bash",
+        "match": { "command": "chmod\\s+777" },
+        "reason": "World-writable permissions"
+      },
+      {
+        "id": "deny-drop-database",
+        "tool": "Bash",
+        "match": { "command": "drop\\s+(database|schema)" },
+        "reason": "Irreversible data loss"
+      },
+      {
+        "id": "deny-sudo",
+        "tool": "Bash",
+        "match": { "command": "\\bsudo\\b" },
+        "reason": "Privilege escalation"
+      },
+      {
+        "id": "deny-dev-server",
+        "tool": "Bash",
+        "match": { "command": "(npm run dev|pnpm dev|yarn dev|bun run dev)" },
+        "reason": "Dev server must run in tmux — use: tmux new-session -d -s dev \"npm run dev\""
+      },
+      {
+        "id": "deny-write-env",
+        "tool": "Write",
+        "match": { "file_path": "\\.env(\\..*)?$" },
+        "reason": "Secret file exposure"
+      },
+      {
+        "id": "deny-write-credentials",
+        "tool": "Write",
+        "match": { "file_path": "(credentials|secrets|token)\\." },
+        "reason": "Credential file write"
+      },
+      {
+        "id": "deny-write-ssh",
+        "tool": "Write",
+        "match": { "file_path": "(\\.ssh/|\\.pem$|\\.key$)" },
+        "reason": "SSH key/cert write"
+      },
+      {
+        "id": "deny-edit-env",
+        "tool": "Edit",
+        "match": { "file_path": "\\.env(\\..*)?$" },
+        "reason": "Secret file edit"
+      },
+      {
+        "id": "deny-edit-credentials",
+        "tool": "Edit",
+        "match": { "file_path": "(credentials|secrets|token)\\." },
+        "reason": "Credential file edit"
+      },
+      {
+        "id": "deny-edit-ssh",
+        "tool": "Edit",
+        "match": { "file_path": "(\\.ssh/|\\.pem$|\\.key$)" },
+        "reason": "SSH key/cert edit"
+      },
+      {
+        "id": "deny-random-docs",
+        "tool": "Write",
+        "match": { "file_path": "\\.(md|txt)$" },
+        "except": { "file_path": "(README|CLAUDE|AGENTS|CONTRIBUTING|SPECLOG|CHANGELOG)\\.md$|\\.claude/" },
+        "reason": "Unnecessary documentation file — use README.md or .claude/ instead"
+      },
+      {
+        "id": "deny-cross-layer-import-fe-to-be",
+        "tool": "Edit",
+        "match": { "file_path": "frontend/", "new_string": "from\\s+['\"].*backend/" },
+        "reason": "Cross-layer import: frontend must not import from backend — use shared/ or an API boundary"
+      },
+      {
+        "id": "deny-cross-layer-write-fe-to-be",
+        "tool": "Write",
+        "match": { "file_path": "frontend/", "content": "from\\s+['\"].*backend/" },
+        "reason": "Cross-layer import: frontend must not import from backend — use shared/ or an API boundary"
+      },
+      {
+        "id": "deny-test-in-src",
+        "tool": "Write",
+        "match": { "file_path": "src/.*\\.(test|spec)\\.(ts|tsx|js|jsx)$" },
+        "except": { "file_path": "__tests__/" },
+        "reason": "Tests should be colocated next to their source files, not nested inside src/ without a module — check file placement"
+      },
+      {
+        "id": "deny-write-env-example-secrets",
+        "tool": "Write",
+        "match": { "file_path": "\\.env\\.example$", "content": "(sk-|ghp_|AKIA|password\\s*=\\s*[^$])" },
+        "reason": "Possible secret in .env.example — use placeholder values only"
+      }
+    ],
+    "warn": [
+      {
+        "id": "warn-git-push",
+        "tool": "Bash",
+        "match": { "command": "git\\s+push" },
+        "reason": "Review changes before pushing"
+      },
+      {
+        "id": "warn-npm-install",
+        "tool": "Bash",
+        "match": { "command": "(npm|pnpm|yarn|bun)\\s+install" },
+        "reason": "Dependency changes"
+      },
+      {
+        "id": "warn-docker",
+        "tool": "Bash",
+        "match": { "command": "docker\\s+(run|compose|build)" },
+        "reason": "Resource/port exposure"
+      },
+      {
+        "id": "warn-curl-mutate",
+        "tool": "Bash",
+        "match": { "command": "curl.*-X\\s*(POST|PUT|DELETE)" },
+        "reason": "External API mutation"
+      },
+      {
+        "id": "warn-ci-config",
+        "tool": "Write",
+        "match": { "file_path": "(\\.github/|\\.gitlab-ci|Jenkinsfile)" },
+        "reason": "Pipeline changes"
+      },
+      {
+        "id": "warn-new-file-no-test",
+        "tool": "Write",
+        "match": { "file_path": "\\.(ts|tsx|js|jsx)$" },
+        "except": { "file_path": "(\\.(test|spec|config|d)\\.|__tests__|node_modules|\\.(eslintrc|prettierrc))" },
+        "reason": "New source file — ensure a colocated .test.{ext} file exists for test coverage"
+      },
+      {
+        "id": "warn-deep-nesting",
+        "tool": "Write",
+        "match": { "file_path": "(/[^/]+){7,}\\.(ts|tsx|js|jsx)$" },
+        "reason": "Deeply nested file (7+ levels) — consider flattening the directory structure for discoverability"
+      },
+      {
+        "id": "warn-edit-lint-config",
+        "tool": "Edit",
+        "match": { "file_path": "(\\.eslintrc|eslint\\.config|agent-rules\\.json|guardian-rules\\.json)" },
+        "reason": "Modifying lint/guardian config — ensure rule changes are intentional and documented"
+      }
+    ]
+  }
+}

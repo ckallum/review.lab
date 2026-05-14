@@ -1,0 +1,104 @@
+{
+  "_description": "Agent-directed structural lint rules. Checked by the lint-gate.cjs hook. These encode conventions that ESLint AST rules cannot express — file placement, import patterns, naming. Language scoping is handled by the `files` glob on each rule; add patterns for new languages without touching lint-gate.cjs.",
+  "rules": [
+    {
+      "id": "rust-no-let-underscore-await",
+      "pattern": "let\\s+_\\s*=.*\\.await",
+      "files": "**/*.rs",
+      "exclude": ["**/tests/**", "**/*_test.rs"],
+      "severity": "warn",
+      "message": "Discarding reply-channel result; match Err explicitly or propagate",
+      "autofix": null
+    },
+    {
+      "id": "rust-if-let-ok-some-swallow",
+      "pattern": "if\\s+let\\s+Ok\\(Some\\(",
+      "files": "**/*.rs",
+      "exclude": ["**/tests/**", "**/*_test.rs"],
+      "severity": "warn",
+      "message": "Swallows Err case silently; use match to handle Err explicitly",
+      "autofix": null
+    },
+    {
+      "id": "rust-ok-drops-err",
+      "pattern": "\\.ok\\(\\)(?!\\s*(?:\\?|\\.(?:or|or_else|map|map_or|map_or_else|and_then|unwrap_or|unwrap_or_else|unwrap_or_default|ok_or|ok_or_else|filter|inspect|expect|is_some|is_none)\\b))",
+      "files": "**/*.rs",
+      "exclude": ["**/tests/**", "**/*_test.rs"],
+      "severity": "warn",
+      "message": ".ok() drops the Err silently; chain .map/.unwrap_or/? or match the Err first",
+      "autofix": null
+    },
+    {
+      "id": "rust-debug-assert-in-prod",
+      "pattern": "debug_assert!\\(",
+      "files": "**/*.rs",
+      "exclude": ["**/tests/**", "**/*_test.rs"],
+      "severity": "warn",
+      "message": "debug_assert! is stripped in release builds — not valid for prod invariants. Use assert! or an explicit error return.",
+      "autofix": null
+    },
+    {
+      "id": "rust-string-match-err-message",
+      "pattern": "\\.contains\\(\"[^\"]*not active\"\\)",
+      "files": "**/*.rs",
+      "exclude": ["**/tests/**", "**/*_test.rs"],
+      "severity": "warn",
+      "message": "String-matching error messages is fragile; introduce a typed error variant",
+      "autofix": null
+    },
+    {
+      "id": "no-default-export",
+      "pattern": "^export\\s+default\\b",
+      "files": "**/*.{ts,tsx,js,jsx}",
+      "exclude": ["**/pages/**", "**/app/**", "next.config.*", "vite.config.*", "*.config.*"],
+      "severity": "warn",
+      "message": "Prefer named exports over default exports for grep-ability",
+      "autofix": null
+    },
+    {
+      "id": "no-relative-parent-import",
+      "pattern": "from\\s+['\"]\\.\\./(\\.\\./)\\.\\./(\\.\\.)?",
+      "files": "**/*.{ts,tsx,js,jsx}",
+      "exclude": ["**/*.test.*", "**/*.spec.*"],
+      "severity": "warn",
+      "message": "Deep relative imports (3+ levels) are fragile — use path aliases instead",
+      "autofix": null
+    },
+    {
+      "id": "no-string-replace-dollar",
+      "pattern": "\\.replace\\([^,]+,\\s*['\"][^'\"]*\\$[0-9&`'][^'\"]*['\"]\\s*\\)",
+      "files": "**/*.{ts,tsx,js,jsx}",
+      "exclude": [],
+      "severity": "error",
+      "message": "String.replace with $ in replacement interprets special sequences — use a function replacer: .replace(pattern, () => value)",
+      "autofix": null
+    },
+    {
+      "id": "no-stringify-unguarded",
+      "pattern": "JSON\\.stringify\\([a-zA-Z_$][a-zA-Z0-9_$]*\\)",
+      "files": "**/*.{ts,tsx,js,jsx}",
+      "exclude": ["**/*.test.*", "**/*.spec.*"],
+      "severity": "warn",
+      "message": "JSON.stringify(undefined) returns undefined (not a string) — guard the input or use a fallback",
+      "autofix": null
+    },
+    {
+      "id": "test-colocation",
+      "pattern": null,
+      "files": "**/*.{ts,tsx,js,jsx}",
+      "exclude": ["**/*.test.*", "**/*.spec.*", "**/*.d.ts", "**/types.*", "**/index.*", "**/*.config.*"],
+      "severity": "info",
+      "message": "Logic file without colocated test — consider adding {basename}.test.{ext}",
+      "check": "colocated-test"
+    },
+    {
+      "id": "no-barrel-import-internal",
+      "pattern": "from\\s+['\"]\\.\\.?/[^'\"]+/index['\"]",
+      "files": "**/*.{ts,tsx,js,jsx}",
+      "exclude": [],
+      "severity": "info",
+      "message": "Importing from barrel index file — prefer direct module imports for tree-shaking and clarity",
+      "autofix": null
+    }
+  ]
+}
