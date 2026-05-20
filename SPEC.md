@@ -1,8 +1,8 @@
 # review.dev MVP — local PR review for agent-authored code
-*Draft 2 · May 2026 · Callum Ke*
+*Draft 4 · May 2026 · Callum Ke*
 
 ## TL;DR
-Build a local PR review surface that runs alongside GitHub. A Claude Code skill publishes the current session's PR to a local server (`localhost:7891`, falling back upward in 7891–7899) backed by SQLite. The reviewer opens a browser tab, reads the PR as a story with per-hunk agent attribution and confidence, and approves chapters or leaves comments. Phase 2 packages the same pipeline as a GitHub Action.
+Build a local PR review surface that runs alongside GitHub. A Claude Code skill publishes the current session's PR to a per-repo local server (`localhost:7891`, falling back upward in 7891–7899) backed by SQLite. Each `reviewdev publish` creates an immutable **revision** with its own chapters and comments; revisions are linked by a code-and-chapter diff view. The reviewer opens a browser tab, reads the PR as a story with per-hunk agent attribution, and approves chapters or leaves comments. Phase 2 packages the same pipeline as a GitHub Action.
 
 GitHub stays the source of truth. review.dev is the reading layer.
 
@@ -13,25 +13,30 @@ You write most of your code with Claude Code now. The PRs you open are large, we
 
 ## Goals
 1. **Read PRs as a story, not a diff.** Open the PR and see chapters (Why → Approach → Tradeoffs → Schema → API → Tests → Rollout) before a line of code. Chapters span files, not the other way around.
-2. **Provenance per hunk.** Every hunk shows which agent wrote it (Claude, cursor-tab, you-by-hand) and a confidence band.
-3. **One-shot publishing from Claude Code.** `/publish-review` returns a URL in under 2 seconds; the rendered review is fully readable within 15 seconds (p95, 50-hunk PR).
-4. **Zero infrastructure.** No accounts, no Docker, no cloud. `bun install -g reviewdev`, then `/publish-review`.
-5. **GitHub stays canonical.** review.dev links out, never replaces. PR description, merge, and CI all stay on GitHub.
+2. **Provenance per hunk.** Every hunk shows which agent wrote it (Claude, cursor-tab, you-by-hand). Confidence rendering deferred until week 2.
+3. **Immutable revisions.** Each publish creates a snapshot. Comments live on the revision they were left on. A revision-to-revision diff view shows what changed in code and chapters since the last publish.
+4. **One-shot publishing from Claude Code.** `/publish-review` returns a URL in under 2 seconds; the rendered review is fully readable within a measured SLA on a 50-hunk PR.
+5. **Zero infrastructure.** No accounts, no Docker, no cloud. `bun install -g reviewdev`, then `/publish-review`.
+6. **GitHub stays canonical.** review.dev links out, never replaces. PR description, merge, and CI all stay on GitHub.
 
 ## Non-Goals (MVP)
 1. **Multi-user.** Single-user, localhost only. No auth.
-2. **Behavioral diff sandbox** *(Concept 05 from the demo).* Defer.
+2. **Behavioral diff sandbox** *(Concept 05).* Defer.
 3. **Full replay scrubber** *(Concept 06).* A chronological decisions list is enough.
 4. **Audience switching beyond engineer** *(Concept 03).*
-5. **Real-time collab.** Comments and approvals are local. No GitHub sync in MVP — not even an export button.
+5. **Real-time collab.** Comments and approvals are local. No GitHub sync — not even an export button.
 6. **Self-hosted distribution.** Public repo, but not packaged for others' use.
-7. **Uncommitted changes.** Publish reflects committed state on the branch. If you want to review before merging, you must commit first.
+7. **Uncommitted changes.** Publish reflects committed state on the branch.
+8. **Cross-repo dashboard.** Each repo is its own world.
+9. **Confidence scoring in week 1.** All hunks render at `high`. Heuristic added in week 2 only if dogfood reveals the gap.
+10. **Comment migration across revisions.** Comments are immutable on their revision. The revision diff view + a header pill ("4 comments on earlier revisions") is the discoverability story.
+11. **Diff between arbitrary revision pairs.** v1 only diffs revision N against N-1.
 
 ---
 
 ## Architecture
 
-The CLI splits into two processes: `reviewdev serve` (long-running, started once) and `reviewdev publish` (one-shot, called by the skill).
+Each repo gets its own SQLite DB and its own `reviewdev serve` process. The Claude Code skill shells out to `reviewdev publish`, which talks to the server for the current repo over HTTP. Every successful publish creates a new revision row.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -41,54 +46,90 @@ The CLI splits into two processes: `reviewdev serve` (long-running, started once
                  │ shells out
                  ▼
 ┌─────────────────────────────────────────────────────────┐
-│  reviewdev publish  (one-shot)                          │
+│  reviewdev publish  (one-shot, cwd-rooted)              │
+│  ├─ resolve repo root from cwd                          │
+│  ├─ read <repo>/.reviewdev/port                         │
 │  ├─ git fetch origin <base>                             │
 │  ├─ git diff $(merge-base HEAD origin/<base>)..HEAD     │
 │  ├─ ~/.claude/projects/<slug>/<session>.jsonl (+subs)   │
-│  ├─ gh pr view --json url                               │
-│  ├─ writes hunks/sessions to SQLite                     │
-│  └─ POSTs /api/pr/:id/generate-chapters (streams)       │
+│  ├─ gh pr view --json url (best-effort)                 │
+│  ├─ POST /api/pr (server creates revision N)            │
+│  └─ trigger /api/pr/:id/rev/:n/generate (SSE)           │
 └────────────────┬────────────────────────────────────────┘
-                 │ writes / talks to
+                 │ HTTP
                  ▼
-        ~/.reviewdev/db.sqlite
+        <repo>/.reviewdev/db.sqlite
                  ▲
                  │
 ┌─────────────────────────────────────────────────────────┐
-│  reviewdev serve  (foreground, e.g. tmux or launchd)    │
-│  localhost:7891  (Hono on Bun)                          │
-│  ├─ GET  /pr/:id                  → the demo HTML       │
-│  ├─ GET  /api/pr/:id              → JSON                │
-│  ├─ POST /api/pr/:id/comments                           │
-│  ├─ POST /api/pr/:id/chapters/:cid/approve              │
-│  ├─ POST /api/pr/:id/chapters/:cid/lock                 │
-│  ├─ POST /api/pr/:id/generate-chapters  (SSE stream)    │
-│  └─ POST /api/pr/:id/ask           (SSE stream)         │
+│  reviewdev serve  (foreground, cwd-rooted)              │
+│  localhost:7891–7899  (Hono on Bun)                     │
+│  ├─ GET  /pulls                                         │
+│  ├─ GET  /pr/:id                  → latest revision     │
+│  ├─ GET  /pr/:id/rev/:n           → pinned revision     │
+│  ├─ GET  /pr/:id/rev/:n/diff      → diff vs rev (n-1)   │
+│  ├─ GET  /api/pr/:id/revisions    → list                │
+│  ├─ POST /api/pr                  → create revision     │
+│  ├─ POST /api/pr/:id/rev/:n/comments                    │
+│  ├─ POST /api/pr/:id/rev/:n/chapters/:cid/approve       │
+│  ├─ POST /api/pr/:id/rev/:n/generate  → SSE             │
+│  └─ POST /api/pr/:id/rev/:n/ask       → SSE             │
 └─────────────────────────────────────────────────────────┘
                  │
                  ▼
         open in browser
 ```
 
-`reviewdev publish` returns a URL the moment hunks are written (sub-second). The browser opens to a skeleton view and chapters stream in over SSE.
+`reviewdev publish` returns a URL the moment the revision row + hunks are uploaded (sub-second). The browser opens to a skeleton view and a single LLM call streams `{chapters, decisions}` over SSE.
+
+### Revisions
+
+A **revision** is an immutable snapshot of a PR at the moment `reviewdev publish` was called. Each revision owns its own hunks, chapters, decisions, comments, and approvals. Nothing migrates across revisions; the link between them is the **revision diff view**.
+
+Rules:
+
+- **Each publish creates a new revision** with `number = max(prior) + 1`, unless the diff exactly matches the latest revision's hunks — in that case, no new revision is created and `publish` returns the latest URL. (Prevents accidental duplicate revisions when re-running publish without changes.)
+- **The latest revision is the default view.** `/pr/:id` redirects to `/pr/:id/rev/<latest>`.
+- **Old browser tabs pin to the revision they were opened on.** No supersedes, no flicker — the tab from yesterday keeps showing yesterday's revision until you reload.
+- **Chapter inheritance is a soft prompt-level hint.** The chapter-generation call for revision N is shown the prior revision's chapter titles and which of its hunks (by content hash) still exist in N. The prompt instructs: *"reuse a title/grouping where every underlying hunk is unchanged; regenerate otherwise."* No explicit lock — the LLM decides.
+- **Comments live on the revision they were left on.** A header pill on the latest revision ("4 comments on earlier revisions · view") opens a revision picker. No migration logic.
 
 ## Data Model (SQLite)
 
-One global DB at `~/.reviewdev/db.sqlite`. Repos distinguish via the `repo` column. Schema versions are tracked in a `meta` table; numbered migrations in `migrations/NNN_*.sql` apply forward-only on `reviewdev serve` start.
+One DB per repo at `<repo-root>/.reviewdev/db.sqlite`. Path is gitignored on first `reviewdev publish`. Schema versions tracked in a `meta` table; numbered migrations in `migrations/NNN_*.sql` apply forward-only on `reviewdev serve` start. WAL mode enabled; publish writes use `BEGIN IMMEDIATE`.
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `pulls` | `id`, `repo`, `branch`, `base`, `title`, `github_url`, `status`, `created_at`, `updated_at` | One per (repo, branch) |
-| `sessions` | `id`, `pull_id`, `agent`, `kind` *(execute/review/ship)*, `transcript_path`, `cwd`, `started_at`, `ended_at`, `parent_session_id`, `compacted` | `cwd` captured for branch correlation; `compacted=1` when transcript has been /clear-ed or compacted |
-| `hunks` | `id` *(content-hash)*, `pull_id`, `file_path`, `start_line`, `end_line`, `content`, `kind` *(add/del/mod)*, `session_id`, `agent`, `confidence`, `generated` | `id` = SHA-256(file_path + sorted line content). Comments survive re-publishes via this hash. |
-| `chapters` | `id`, `pull_id`, `marker` *("§ 03 · Tradeoff")*, `title`, `summary`, `order`, `locked` | `locked=1` once a user edits the title/summary or moves hunks. Locked chapters skipped on regenerate. |
-| `chapter_hunks` | `chapter_id`, `hunk_id`, `order` | many-to-many |
-| `decisions` | `id`, `session_id`, `ts`, `summary` | LLM-extracted at publish time |
-| `comments` | `id`, `pull_id`, `target_kind`, `target_id`, `body`, `created_at` | Markdown body. Hunk-, chapter-, or PR-scoped. No threading, no resolved state, no line-anchoring in v1. |
-| `approvals` | `id`, `pull_id`, `chapter_id`, `approved_at`, `note` | Chapter-level signoff |
+| `pulls` | `id`, `branch`, `base`, `title`, `github_url`, `status`, `created_at`, `updated_at` | One per branch. |
+| `revisions` | `id`, `pull_id`, `number`, `git_head_sha`, `git_base_sha`, `diff_hash`, `created_at` | `number` starts at 1; `diff_hash` = hash of the sorted hunk-id set, used to detect duplicate publishes. Unique on `(pull_id, number)`. |
+| `sessions` | `id`, `pull_id`, `agent`, `kind`, `transcript_path`, `cwd`, `started_at`, `ended_at`, `parent_session_id`, `compacted` | Scoped to the PR, not a single revision. Sessions can span revisions. `cwd` used for branch correlation. |
+| `hunks` | `id` *(content-hash)*, `revision_id`, `pull_id`, `file_path`, `start_line`, `end_line`, `content`, `kind`, `session_id`, `agent`, `confidence`, `generated` | `id` = `SHA-256(file_path + "\n" + literal hunk content)`. Used both for revision diffing and chapter-inheritance hints. Same hash can appear in multiple revisions. |
+| `chapters` | `id`, `revision_id`, `pull_id`, `marker`, `title`, `summary`, `order`, `inherited_from_chapter_id` | `inherited_from_chapter_id` (nullable) points at the prior revision's chapter when the LLM reused it. Used for the revision-diff chapter view. |
+| `chapter_hunks` | `chapter_id`, `hunk_id`, `order` | Many-to-many within a revision. |
+| `decisions` | `id`, `revision_id`, `session_id`, `ts`, `summary` | Extracted in the same LLM call as chapters. |
+| `comments` | `id`, `revision_id`, `pull_id`, `target_kind`, `target_id`, `body`, `created_at` | Markdown body. Scoped to the revision. No threading, no resolution, no line-anchoring in v1. |
+| `approvals` | `id`, `revision_id`, `pull_id`, `chapter_id`, `approved_at`, `note` | Chapter-level signoff on a specific revision. |
+| `usage` | `id`, `day`, `cost_usd`, `tokens_in`, `tokens_out`, `op` | One row per LLM call. |
 
-### Hunk identity & comment migration
-Hunks are addressed by a content hash (`SHA-256(file_path + sorted line content)`). On re-publish, if a hunk with a given hash reappears, its existing comments and approvals are reattached. If the hunk's content drifts at all, it becomes a new hunk and prior comments orphan onto the chapter (visible as "carried over from previous revision"). This is the lightweight, honest version of comment migration — fuzzy context matching is a Phase 2 improvement if orphaning bites.
+### Hunk identity (for diff and inheritance)
+Hunks are addressed by `SHA-256(file_path + "\n" + literal hunk content)`. The hash is order-sensitive. It serves two purposes:
+
+1. **Revision diffing.** Hunks added in revision N (not in N-1 by hash) are flagged "added"; hunks gone in N (in N-1 by hash, not in N) are "removed"; matching hashes are "unchanged."
+2. **Chapter-inheritance hints.** The chapter-generation prompt for revision N is told which prior chapters' hunks all survived (by hash), with instructions to reuse titles/groupings for those. New, regrouped, or partially-changed chapters regenerate.
+
+There is no migration logic — hashes are reference data, not identity-preserving foreign keys.
+
+### Revision diff view
+
+`GET /pr/:id/rev/:n/diff` renders the diff between revision `n` and revision `n-1` (if `n=1`, falls back to the initial-publish view).
+
+Shown:
+
+- **Code delta.** Hunks added in `n`, hunks removed since `n-1`, hunks unchanged. Rendered with the same Concept 01 chrome but with diff badges.
+- **Chapter delta.** Chapters new in `n`, chapters dropped since `n-1`, chapters inherited (linked back to their source), chapters with same title but different hunk membership.
+- **Header.** `Revision n vs n-1 · <git_head_sha[:7]>`. Switch to "view rev n alone" with one click.
+
+The diff view does *not* show comment additions — comments are scoped to a revision and the chapter-delta carries enough signal.
 
 ---
 
@@ -103,9 +144,28 @@ Hunks are addressed by a content hash (`SHA-256(file_path + sorted line content)
 ---
 
 ## Server lifecycle
-`reviewdev serve` runs in the foreground. Users start it once — typically in a tmux pane, or under launchd if they want it always on. `reviewdev publish` errors out with a clear message if no server is up: `reviewdev: no server on 7891–7899. Run 'reviewdev serve' first.`
+`reviewdev serve` runs in the foreground, rooted at the current working directory's repo root. Each repo runs its own server. The serve process probes ports 7891–7899, binds the first free one, and writes the chosen port to `<repo-root>/.reviewdev/port`. `reviewdev publish` reads that file from the current cwd to find the right server.
 
-The serve process probes ports 7891 through 7899 and binds the first free one. The chosen port is written to `~/.reviewdev/port` so `publish` can find it. URLs in skill output read from that file.
+If no server is running for the repo, `publish` errors out with: `reviewdev: no server for <repo>. Run 'reviewdev serve' in this repo first.`
+
+No supersedes-on-concurrent-publish logic. Each publish creates its own immutable revision; SSE streams run to completion against their own revision. Two overlapping publishes simply produce revisions N and N+1 in some order — both readable, both queryable.
+
+---
+
+## API key & model
+
+`ANTHROPIC_API_KEY` environment variable only. Model is `claude-sonnet-4-7` by default, override via `REVIEWDEV_MODEL`. If `ANTHROPIC_API_KEY` is unset:
+
+- Chapter generation falls back to file-based grouping (group by top-level directory, secondary split by extension).
+- Decisions extraction is skipped (it shares the chapter call).
+- Ask-the-author is disabled with a tooltip pointing at setup.
+- `reviewdev publish` prints: `ANTHROPIC_API_KEY not set — using file-based chapters. See README for setup.`
+
+### Cost guardrails
+Each LLM call records cost + token counts in the `usage` table. Before any LLM call:
+
+- If `usage.cost_usd` sum for today is greater than $5 — print a warning, continue.
+- If `usage.cost_usd` sum for today is greater than `REVIEWDEV_DAILY_CAP` (unset by default) — fail with a clear message.
 
 ---
 
@@ -114,37 +174,80 @@ The serve process probes ports 7891 through 7899 and binds the first free one. T
 ### P0 — Must have for MVP
 | # | Requirement | Acceptance criteria |
 |---|---|---|
-| **P0.1** | **Claude Code skill** | A `/publish-review` slash command invokes `reviewdev publish --cwd "$(pwd)" --session "$CLAUDE_SESSION_ID"`. Skill installed at `~/.claude/skills/review-dev/SKILL.md` by `bun install -g reviewdev`'s postinstall, which refuses to overwrite an existing file (use `reviewdev install-skill --force` to overwrite). |
-| **P0.2** | **CLI: `reviewdev publish`** | Resolves diff per the §Diff source rules. Writes hunks and sessions to SQLite. Returns a URL within 2s of invocation; rendered chapters complete within 15s p95 on a 50-hunk PR via SSE streaming. Also works standalone with no `$CLAUDE_SESSION_ID` — session-dependent features (session bay, ask-the-author, decisions) degrade gracefully. |
-| **P0.3** | **Chapter generation** | Anthropic API (claude-sonnet) groups hunks into 3–7 chapters. Prompt receives the full diff content (chunked into multiple model calls + a merge pass when input exceeds ~150k tokens). Streams via SSE; the browser renders chapters as they arrive. Falls back to file-based grouping if `ANTHROPIC_API_KEY` is unset. |
-| **P0.4** | **Per-hunk attribution** | `git blame --follow` (handles file renames/moves) + commit-trailer parsing (`Co-authored-by: claude-sonnet`, prefer trailer over blame author when present, so squashed/rebased history reads correctly). Mixed-author hunks: majority-line-author wins; chip shows the winner. Generated files (`.gitattributes linguist-generated`, lockfiles, `*.snap`, `dist/`) tagged `generated`, excluded from chapter prompts and confidence scoring. Deleted-only hunks blame the prior commit and render with `kind=del` styling. |
-| **P0.5** | **Per-hunk confidence (heuristic v1)** | `confidence = file_path_risk × diff_size_factor`. File-path risk is a small lookup table (auth/migrations/billing/secrets → low; tests/docs/fixtures → high; default → medium). No test-coverage signal in v1 — running the suite is too slow for the 15s budget. UI renders as a low/medium/high word with a colour band (red / amber / green). |
-| **P0.6** | **Concept 01 view** | Browser renders the imported demo HTML, data-driven from `/api/pr/:id`. Title, chapter sidebar, marker headings, file-pill spans, hunks with attribution chips and confidence bands. Skeleton renders before chapters stream in. |
-| **P0.7** | **GitHub link out** | If `gh pr view --json url` returns a URL, display "View on GitHub" in the header. Otherwise show the branch name. |
-| **P0.8** | **Local persistence** | Comments and approvals stored in SQLite. Survive restarts and re-publishes (via content-hash hunk identity). Comments are markdown-bodied, no threading, no resolution state, no line anchoring. |
-| **P0.9** | **Re-publish updates in place** | Running `reviewdev publish` on the same (repo, branch) updates the existing PR record. Locked chapters (any chapter the user has touched — title/summary edit, hunk move) are preserved. Unlocked chapters and new hunks regenerate. Comments reattach to hunks by content hash. |
+| **P0.1** | **Claude Code skill** | A `/publish-review` slash command invokes `reviewdev publish --cwd "$(pwd)" --session "$CLAUDE_SESSION_ID"`. Skill installed at `~/.claude/skills/review-dev/SKILL.md` by `bun install -g reviewdev`'s postinstall. If the file exists, postinstall skips and prints the manual override command. No `install-skill --force` subcommand. |
+| **P0.2** | **CLI: `reviewdev publish`** | Resolves diff per §Diff source. Uploads to the per-repo server, which creates a new revision (or returns the existing URL if `diff_hash` matches latest). Returns a URL within 2s; rendered chapters complete within the measured SLA on a 50-hunk PR via SSE. Works standalone with no `$CLAUDE_SESSION_ID`; session-dependent features degrade gracefully. |
+| **P0.3** | **Chapter generation + decisions** | Single Anthropic API call (`claude-sonnet-4-7`) outputs `{chapters: [3-7], decisions: [...]}`. Prompt receives the full diff content (chunked above ~150k tokens), the prior revision's chapter titles + which hunks survived, with instructions to reuse where unchanged. Streams via SSE. Falls back to file-based grouping (no decisions) if `ANTHROPIC_API_KEY` is unset. |
+| **P0.4** | **Per-hunk attribution** | `git blame --follow` + commit-trailer parsing (prefer trailer over blame author). Mixed-author hunks: majority-line wins. Generated files (linguist-generated, lockfiles, `*.snap`, `dist/`) tagged `generated`, excluded from chapter prompts. Deleted-only hunks blame the prior commit, render with `kind=del` styling. |
+| **P0.5** | **Confidence display (week 1: stub)** | All hunks render at `confidence=high` in week 1. Column exists in the schema. UI renders low/medium/high words with red/amber/green colour bands. Heuristic deferred to P1.7 if dogfood reveals the gap. |
+| **P0.6** | **Concept 01 view** | Browser renders the imported demo HTML (Concept 01 only, extracted from `~/Documents/Claude/Projects/review.dev/review-dev-demo.html`), data-driven from `/api/pr/:id/rev/:n`. Title, chapter sidebar, marker headings, file-pill spans, hunks with attribution chips and confidence bands. Skeleton renders before chapters stream in. Numeric `conf 0.94` replaced with word-band display. Concepts 02–06 stripped from the import. |
+| **P0.7** | **GitHub link out** | If `gh pr view --json url` returns a URL, display "View on GitHub" in the header. Otherwise show the branch name. `gh` missing/unauthed swallowed silently. |
+| **P0.8** | **Comments and approvals** | Stored on the revision they were left on. Markdown body, no threading, no resolution state, no line-anchoring. Header pill on the latest revision: "N comments on earlier revisions · view" → opens a revision picker. |
+| **P0.9** | **Revision diff view** | `GET /pr/:id/rev/:n/diff` renders code delta and chapter delta between revision `n` and `n-1`. Hunks tagged added/removed/unchanged. Chapters tagged added/dropped/inherited/regenerated. For `n=1`, shows the same view as the initial revision (no prior to diff against). |
+| **P0.10** | **API surface for navigation** | `GET /pulls` lists open PRs (status, branch, title, updated_at, latest_revision_number). `GET /api/pr/:id/revisions` lists revisions in order. Used by the index page and the revision picker. |
 
 ### P1 — Nice to have
 | # | Requirement | Notes |
 |---|---|---|
-| **P1.1** | **Session bay** *(Concept 04)* | Right rail lists sessions correlated to this branch. Correlation uses `cwd` recorded in transcript JSONL entries plus the time of recent commits on the branch. Kind labels (Execute / Review / Ship) read from session metadata. Only the `$CLAUDE_SESSION_ID` plus its sub-agent/Task sessions are followed in v1 — broader scans across `~/.claude/projects/` come later if needed. Compacted/cleared sessions show but with a "compacted" badge; decisions extraction skipped for them. |
-| **P1.2** | **Resume from review.dev** | "Resume" button on a session generates a `claude --resume <session-id>` command and copies to clipboard. |
-| **P1.3** | **Recompose chapters** | Per-chapter button regenerates that chapter's grouping with a new prompt; chapter becomes locked once committed. |
-| **P1.4** | **Ask the author** | Per-chapter chat input. Request body = the chapter's hunks + chapter summary + the question + a *relevant slice* of the session transcript (filtered to tool calls and messages that touched files in this chapter). Streams response via SSE. Stored as comments scoped to the chapter so the conversation persists. |
-| **P1.5** | **Decisions list** | Right rail in chapter view shows chronological decisions extracted from the session transcript by a single LLM pass at publish time. Adds 5–10s to publish; runs in parallel with chapter generation so it doesn't extend wall time. Skipped for compacted sessions. |
-| **P1.6** | **Branches** | Parallel exploratory branches associated with the same root issue, surfaced as in Concept 04. Schema reuses `sessions.kind` — `exploratory` is added as a value. |
+| **P1.1** | **Session bay** *(Concept 04)* | Right rail lists sessions correlated to this branch via `cwd` + recent commit times. Kind labels from session metadata. v1 follows only `$CLAUDE_SESSION_ID` + its sub-agent/Task sessions. Sessions span revisions; the bay shows them all. Compacted/cleared sessions show with a "compacted" badge. |
+| **P1.2** | **Resume from review.dev** | "Resume" button generates a `claude --resume <session-id>` command and copies to clipboard. |
+| **P1.3** | **Ask the author** | Per-chapter chat input. Request = chapter hunks + summary + question + a *relevant slice* of the session transcript. Streams via SSE. Stored as comments scoped to the chapter (and its revision) so the conversation persists. |
+| **P1.4** | **Decisions list rendering** | Right rail in chapter view shows chronological decisions from the `decisions` table. Already emitted in P0.3's combined LLM call. Skipped visually for compacted sessions. |
+| **P1.5** | **Branches** | Parallel exploratory branches surfaced as in Concept 04. Schema reuses `sessions.kind`; `exploratory` is a value. |
+| **P1.6** | **Diff between arbitrary revision pairs** | UI affordance to diff any two revisions (e.g. rev 5 vs rev 2). Cheap once P0.9 ships — same logic, different inputs. |
+| **P1.7** | **Confidence heuristic** | If dogfood reveals the gap: implement `confidence = file_path_risk × diff_size_factor`. Otherwise stay at `high`. |
 
 ### P2 — Phase 2 and beyond
 | # | Requirement | Notes |
 |---|---|---|
-| **P2.1** | `reviewdev/action@v1` | GitHub Action runs the same pipeline on PR open/update. Posts a comment on the PR linking to the hosted review. |
-| **P2.2** | **Hosted review.dev** | Same UI, deployed somewhere (OQ.5). Auth via GitHub OAuth. Multi-user. |
+| **P2.1** | `reviewdev/action@v1` | GitHub Action runs the same pipeline on PR open/update. Posts a comment linking to the hosted review. |
+| **P2.2** | **Hosted review.dev** | Same UI, deployed somewhere (OQ.1). Auth via GitHub OAuth. Multi-user. |
 | **P2.3** | **Lanes** *(Concept 02)* | Real multi-agent attribution from agent platforms emitting session metadata. |
 | **P2.4** | **Behavioral diff** *(Concept 05)* | Run before/after through ephemeral compute, replay user flows. |
-| **P2.5** | **Audience switching** *(Concept 03)* | LLM-summarised views of the same PR for PM, Support, Exec. |
+| **P2.5** | **Audience switching** *(Concept 03)* | LLM-summarised views for PM, Support, Exec. |
 | **P2.6** | **Full replay scrubber** *(Concept 06)* | Drag a handle across the agent's session, drop in at any moment. |
-| **P2.7** | **Fuzzy hunk migration** | If content-hash orphaning bites during dogfooding, upgrade to context-similarity matching. |
-| **P2.8** | **Export comments to GitHub** | One-shot push of comments to the GitHub PR. Deliberately out of MVP. |
+| **P2.7** | **Export comments to GitHub** | One-shot push of comments to the GitHub PR. |
+| **P2.8** | **Cross-repo dashboard** | If wanted later, build a meta-server aggregating per-repo `db.sqlite` files. |
+
+---
+
+## Test Strategy
+
+Two fixture-based suites land before week 1 ships. (Down from three — comment-migration tests are gone with the simplification.)
+
+| Suite | Covers | Style | Fixtures |
+|---|---|---|---|
+| `hunks.test.ts` | Hash function + revision diff correctness | Property tests over `(file_path, content) → hash`. Fixture cases: whitespace edit, line added in middle, line reordered, file renamed. Verify `rev N hunks vs rev N-1 hunks` produces correct added/removed/unchanged sets. | Synthetic diffs |
+| `chunk-merge.test.ts` | Chunked LLM merge correctness | Mocked LLM responses; assert all hunks covered, markers unique, chapter count 3–7, decisions globally coherent. Also verify chapter-inheritance hint correctness: when prior chapters are passed in and all hunks survive, the LLM is given enough context to reuse. | Recorded streaming responses |
+
+**LLM mocking discipline.** All LLM calls in tests go through a recorded-fixture interface. Real recordings curated from dogfood. CI never hits the live API.
+
+**Test pyramid.** Roughly 70% integration (DB + HTTP + git + filesystem), 20% pure unit (hashing, parsing, prompt building), 10% E2E (full publish flow against a fixture repo, no real LLM).
+
+**Tests that must pass in week 1 before any code ships:**
+1. Hash function: 30+ property cases.
+2. Revision diffing: 10+ cases covering hunk-add, hunk-remove, file-rename, ordering changes.
+3. Chunked merge: 5+ recorded large-diff cases including the inheritance-hint prompt extension.
+
+---
+
+## Failure modes
+
+| Codepath | Realistic failure | Test? | Error path | User sees |
+|---|---|---|---|---|
+| `git fetch` | No network / wrong remote | ✓ integration | 10s timeout, then continue with stale base | Warning line: "fetch failed, using last-known base" |
+| Anthropic API | Rate limit / 5xx | ✗ — add | Retry once with backoff, then surface | Banner on chapter pane: "chapter generation failed — retry" |
+| Transcript missing | `$CLAUDE_SESSION_ID` points at deleted file | ✓ via standalone-mode tests | Continue without transcript | Session bay empty; no warning |
+| Transcript compacted | `/compact` ran | ✓ via fixture | Mark session compacted, skip decisions | Compacted badge in session bay |
+| `gh` missing/unauthed | Not installed or no token | ✓ via fixture | Silent — show branch name | No GitHub link in header |
+| Port 7891–7899 all taken | Edge case | ✗ — add | Fail with: "no free port in 7891–7899, set REVIEWDEV_PORT" | Clear CLI error |
+| SSE stream drops | Browser tab backgrounded; network hiccup | ✗ — manual | Browser reconnects on the same revision; server resumes | Brief "reconnecting…" flicker |
+| Migration fails mid-run | Schema patch crashes | ✗ — manual | SQLite rolls back via transaction; serve exits non-zero | "Migration failed, see logs" |
+| Duplicate publish (same diff) | User re-runs without commits | ✓ via integration | `diff_hash` matches latest revision; return existing URL | No new revision; same URL |
+| Concurrent publish (different diffs) | Two terminals publish same branch | ✓ via integration | Both succeed; revisions assigned in commit order | Both revisions readable |
+| Daily cost cap hit | $REVIEWDEV_DAILY_CAP reached | ✓ via unit | Publish fails before LLM call | "Daily cap reached, override via REVIEWDEV_DAILY_CAP=N" |
+| Stale browser tab on old revision | User left a tab open from yesterday | ✗ — manual | Tab keeps showing that revision. Reload → latest. | Explicit, deterministic — by design |
+
+No row has *both* "no test" AND "no error handling" AND "silent failure."
 
 ---
 
@@ -166,90 +269,69 @@ When invoked:
 3. Done.
 ```
 
-`reviewdev publish` reads `$CLAUDE_SESSION_ID` (when present) to locate the transcript at `~/.claude/projects/<slug>/<session-id>.jsonl`. The transcript provides:
-
-- **Tool calls** — file edits, bash commands, search results.
-- **User messages** — the original goal, mid-session corrections.
-- **Agent reasoning** — internal decisions to log on the timeline.
-- **`cwd`** — for session↔branch correlation in the session bay.
-
-Sub-agent / Task tool sessions are followed via parent references in the JSONL. For other agents (cursor-tab, codex, gemini), v1 identifies them via commit trailers and shows them as authors. Richer per-step attribution is Phase 2.
+`reviewdev publish` reads `$CLAUDE_SESSION_ID` (when present) to locate `~/.claude/projects/<slug>/<session-id>.jsonl`. The transcript provides tool calls, user messages, agent reasoning, and `cwd` per entry (for branch correlation). Sub-agent / Task sessions follow via parent references.
 
 ### Optional second skill: `/resume-review`
-Reverses the flow. From the review surface, "Resume from step 3" copies a `claude --resume` command. From Claude Code, `/resume-review` reads the most recent open PR in `~/.reviewdev/db.sqlite` and continues the corresponding session.
-
----
-
-## API key
-
-`ANTHROPIC_API_KEY` environment variable only. If unset:
-
-- Chapter generation falls back to file-based grouping (group by top-level directory, secondary split by extension).
-- Decisions extraction is skipped.
-- Ask-the-author is disabled with a tooltip pointing at setup.
-- `reviewdev publish` prints a one-liner: `ANTHROPIC_API_KEY not set — using file-based chapters. See README for setup.`
+Reverses the flow. From the review surface, "Resume from step 3" copies a `claude --resume` command. From Claude Code, `/resume-review` reads the most recent open PR in the current repo's `.reviewdev/db.sqlite` and continues the corresponding session.
 
 ---
 
 ## Success Metrics
 
 **Leading (per-PR usage):**
-- Time-to-URL **under 2 seconds (p95)** on a 50-hunk PR.
-- Time-to-readable-chapters **under 15 seconds (p95)** on a 50-hunk PR.
-- **3–7 chapters** generated per PR (signal of right-sized grouping).
-- Per-hunk confidence shows **variance, not flat high** (validates the model is doing work).
+- Time-to-URL under 2 seconds (p95) on a 50-hunk PR.
+- Time-to-readable-chapters measured in week 1, target band 15–25 seconds (p95).
+- 3–7 chapters generated per revision.
+- Daily LLM cost under $5 (p95) during dogfood.
 
 **Lagging (over weeks of personal use):**
-- **% of my own PRs read in review.dev before merge:** target 80%+ within 2 weeks of week-4 ship.
-- **Time-to-merge on agent-authored PRs:** measure baseline first week, target 30% reduction by week 4.
-- **Number of "wait, what does this PR even do?" moments:** target zero.
-
-If leading hits and lagging doesn't move, the product is wrong. If lagging moves but leading doesn't, the build is wrong.
+- % of my own PRs read in review.dev before merge — target 80%+ within 2 weeks of week-4 ship.
+- Time-to-merge on agent-authored PRs — target 30% reduction by week 4.
+- Number of "wait, what does this PR even do?" moments — target zero.
 
 ---
 
 ## Open Questions
 | # | Question | Owner |
 |---|---|---|
-| OQ.5 | Phase 2 deployment target: Fly, Render, Vercel? | Defer until Phase 1 has earned its place |
-| OQ.6 | Marking a session as "exploratory" vs "main" — adding the value to `sessions.kind` covers schema, but UX for the user-facing distinction is unspecified. | Engineering — week 1 if P1.6 is built |
-
-All other OQs from Draft 1 are now resolved in the spec body.
+| OQ.1 | Phase 2 deployment target: Fly, Render, Vercel? | Defer until Phase 1 has earned its place |
+| OQ.2 | Marking a session as "exploratory" vs "main" — schema covers it via `sessions.kind`, but UX is unspecified. | Engineering — week 1 if P1.5 is built |
 
 ---
 
 ## Timeline & Phasing
-**Week 1 — bootstrap.** `reviewdev serve` (Hono on Bun) + SQLite schema with numbered migrations + `reviewdev publish` writing real diffs with file-based chapters. Demo HTML imported and wired to `/api/pr/:id`. Loop verified end-to-end. No LLM yet.
+**Week 1 — bootstrap.** `reviewdev serve` (Hono on Bun) + SQLite schema with numbered migrations + WAL + `reviewdev publish` writing revisions with file-based chapters. Demo HTML imported (Concept 01 only) and wired to `/api/pr/:id/rev/:n`. Revision diff view (P0.9) implemented. The two test suites (hash+diff, chunk-merge) land before code merges. **Measurement spike:** run chapter generation on 5 real 50-hunk PRs with Sonnet 4-7, record TTFT + total-render-time, commit to an SLA number.
 
-**Week 2 — chapter generation + dogfood.** Wire Anthropic API with streaming. Generate chapters from the full diff. Per-hunk attribution via `git blame --follow` + trailer parsing. Confidence heuristic. **First real dogfood: reviewdev's own PRs go through reviewdev starting now.** Bugs found dogfooding feed back into week 3.
+**Week 2 — chapter generation + dogfood.** Wire the combined chapters+decisions API call with streaming and the chapter-inheritance prompt extension. Attribution via `git blame --follow` + trailer parsing. **First dogfood:** reviewdev's own PRs go through reviewdev starting now.
 
-**Week 3 — skill + session bay.** Skill triggers the CLI; postinstall lays it down. Transcript reading + sub-agent following. Session bay with `cwd`-based correlation. Compacted-session handling. MVP shippable.
+**Week 3 — skill + session bay.** Skill triggers the CLI; postinstall lays it down. Transcript reading + sub-agent following. Session bay with `cwd`-based correlation. Compacted-session handling.
 
-**Week 4 — sharpen.** Recompose, ask-the-author with transcript slicing, decisions extraction. README and `bun install -g reviewdev`. Public GitHub repo.
+**Week 4 — sharpen.** Ask-the-author with transcript slicing, decisions list UI. README and `bun install -g reviewdev`. Public GitHub repo.
 
-**Pause and use it for a month.** No new features. Every personal PR goes through review.dev. Track success metrics. Note what breaks, what's missing, what's noise.
+**Pause and use it for a month.** No new features. Every personal PR through review.dev.
 
-**Phase 2 — GitHub Action.** Once Phase 1 has earned its place, package the same pipeline as a GitHub Action. Hosted instance for cross-machine review. Open to design partners only after the local version is undeniably useful.
+**Phase 2 — GitHub Action.** Once Phase 1 has earned its place, package as a GitHub Action.
 
 ---
 
 ## Stack
-- **Server:** Bun + Hono. Single binary, fast cold start.
-- **DB:** SQLite via `bun:sqlite`. Numbered SQL migrations in `migrations/`, applied on `reviewdev serve` start.
-- **Frontend:** Imported `review-dev-demo.html`, parameterised to fetch from `/api/pr/:id`. Streaming via EventSource/SSE. Vanilla JS until a build step earns its keep.
-- **LLM:** Anthropic API direct, streaming for chapter generation, decisions, and ask-the-author. Chunking + merge pass for diffs > ~150k tokens.
+- **Server:** Bun + Hono. Single binary per repo, fast cold start.
+- **DB:** SQLite via `bun:sqlite`, WAL mode, `BEGIN IMMEDIATE` for publish writes. Numbered SQL migrations in `migrations/`, applied on `reviewdev serve` start.
+- **Frontend:** Imported `review-dev-demo.html` (Concept 01 only), parameterised to fetch from `/api/pr/:id/rev/:n`. Streaming via EventSource/SSE. Vanilla JS.
+- **LLM:** Anthropic API direct. Single combined call emitting `{chapters, decisions}` via streaming JSON. Chunking + merge pass for diffs > ~150k tokens. Chapter-inheritance hint as a prompt extension.
+- **Testing:** Vitest. Two fixture-based suites in week 1.
 - **Distribution:** `bun install -g reviewdev`. Postinstall lays down the skill (non-destructive).
-- **Telemetry:** None.
+- **Telemetry:** None. The `usage` table is local-only for cost guardrails.
 
 ## What I'd cut to ship faster
 If week 1–3 slips, drop in this order:
-1. **Confidence scoring.** Default everything to high; humans look at file path anyway.
-2. **Decisions list / session bay.** P1, not P0.
-3. **Recompose.** Just re-publish to regenerate.
-4. **Multi-agent attribution.** "Everyone not me" is "human" for v1.
-5. **Ask the author.** Most expensive P1 to build; cleanest cut if week 4 slips.
+1. **Confidence heuristic** (P1.7 — already deferred).
+2. **Decisions list UI** (P1.4 — data is emitted free with chapters; just hide the rail).
+3. **Multi-agent attribution** (P0.4 — "everyone not me" is "human").
+4. **Ask the author** (P1.3 — most expensive P1).
+5. **Diff between arbitrary revision pairs** (P1.6 — only rev N vs N-1 in v1; this is already P1).
 
-Even with all of those cut, the loop is: write code in Claude Code → `/publish-review` → browser pops → read story-shaped PR → approve or comment. That's the MVP.
+Even with all of those cut, the loop is: write code → `/publish-review` → browser pops → read story-shaped revision → approve or comment. New revision when you push again. That's the MVP.
 
 ---
 
@@ -273,13 +355,12 @@ jobs:
           token: ${{ secrets.REVIEWDEV_TOKEN }}
 ```
 
-The action runs the same pipeline as the CLI. Difference: it pushes to a hosted instance and posts a comment on the PR linking to the rendered review. The CLI's local mode still works; the action is additive.
-
 ---
 
 ## Open follow-ups
 After this spec lands:
-- **Engineering ticket breakdown** — slice P0 into ~12 implementation tickets I can work through in Claude Code (recursive).
-- **Skill content** — write the actual `SKILL.md` for `/publish-review` and test it end-to-end.
-- **Demo HTML import** — pull the existing Concept 01 HTML into this repo at `web/index.html` before week 1.
-- **Stakeholder pitch** — if Phase 2 becomes a real product, a one-pager for design partners.
+- **Engineering ticket breakdown** — slice P0 into ~10 implementation tickets.
+- **Skill content** — write the actual `SKILL.md` for `/publish-review`.
+- **Demo HTML import** — extract Concept 01 from `~/Documents/Claude/Projects/review.dev/review-dev-demo.html` into this repo at `web/index.html`.
+- **Refresh diagrams.md** — Draft 4 invalidates the chapter-lifecycle state machine (locked/orphaned are gone) and the supersedes sequence diagram. New diagrams needed: revision lifecycle, revision-diff view, chapter-inheritance LLM call.
+- **Stakeholder pitch** — if Phase 2 becomes real.
