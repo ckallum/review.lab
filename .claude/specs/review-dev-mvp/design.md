@@ -122,6 +122,7 @@ data: { "message": "…", "code": "rate_limit | over_cap | …" }
 | Distribution | `bun install -g reviewdev`; postinstall installs skill non-destructively | One command. No `install-skill --force` subcommand — user runs the manual command if they want to overwrite. |
 | Migrations | Numbered `migrations/NNN_*.sql`, applied on serve start, WAL mode + `BEGIN IMMEDIATE` for writes | Standard forward-only. Personal tool — no rollback path needed. |
 | Tests | Two fixture suites land before week 1 ships (hash+diff, chunk-merge) | The silently-corruptible surfaces dogfood can't catch. |
+| Chunking large diffs | File-boundary split at ~80k tok/chunk; per-chunk chapter candidates; cheap Haiku merge pass for global 3–7 chapters | Files never split across chunks (per-file context preserved). Invariant: every input hunk lands in exactly one chapter. Full spec in [SPEC.md](../../../SPEC.md#chunking-strategy-for-large-diffs). |
 
 ## Security Considerations
 

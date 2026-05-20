@@ -131,6 +131,17 @@ Shown:
 
 The diff view does *not* show comment additions — comments are scoped to a revision and the chapter-delta carries enough signal.
 
+### Chunking strategy for large diffs
+
+When the diff exceeds ~150k input tokens, the chapter prompt is split:
+
+- **Boundary.** Split by file. A single file is never split across chunks — same boundary as `git diff`'s file-by-file output. Preserves per-file context for the model.
+- **Size budget.** Pack files into chunks up to ~80k tokens of diff content per chunk, in file-listing order. A file larger than 80k tokens lands in its own chunk and is flagged as a warning in `reviewdev publish` output (the model may truncate).
+- **Per-chunk call.** Each chunk gets the same chapter-generation prompt with `chunk_index` and `total_chunks` injected. The model returns chapter *candidates* scoped to its files.
+- **Merge pass.** A final consolidation call (Haiku is acceptable here — cheap and fast) takes all candidates and emits the global 3–7 chapter set with marker numbering (`§ 01`, `§ 02`, …) and a merged decisions list. `chunk-merge.test.ts` asserts the invariant: every input hunk lands in exactly one chapter, markers are unique, decisions deduplicate.
+
+Conflict resolution and metadata propagation are implementation concerns, not contract — the contract is the invariant.
+
 ---
 
 ## Diff source
@@ -179,7 +190,7 @@ Each LLM call records cost + token counts in the `usage` table. Before any LLM c
 | **P0.3** | **Chapter generation + decisions** | Single Anthropic API call (`claude-sonnet-4-7`) outputs `{chapters: [3-7], decisions: [...]}`. Prompt receives the full diff content (chunked above ~150k tokens), the prior revision's chapter titles + which hunks survived, with instructions to reuse where unchanged. Streams via SSE. Falls back to file-based grouping (no decisions) if `ANTHROPIC_API_KEY` is unset. |
 | **P0.4** | **Per-hunk attribution** | `git blame --follow` + commit-trailer parsing (prefer trailer over blame author). Mixed-author hunks: majority-line wins. Generated files (linguist-generated, lockfiles, `*.snap`, `dist/`) tagged `generated`, excluded from chapter prompts. Deleted-only hunks blame the prior commit, render with `kind=del` styling. |
 | **P0.5** | **Confidence display (week 1: stub)** | All hunks render at `confidence=high` in week 1. Column exists in the schema. UI renders low/medium/high words with red/amber/green colour bands. Heuristic deferred to P1.7 if dogfood reveals the gap. |
-| **P0.6** | **Concept 01 view** | Browser renders the imported demo HTML (Concept 01 only, extracted from `~/Documents/Claude/Projects/review.dev/review-dev-demo.html`), data-driven from `/api/pr/:id/rev/:n`. Title, chapter sidebar, marker headings, file-pill spans, hunks with attribution chips and confidence bands. Skeleton renders before chapters stream in. Numeric `conf 0.94` replaced with word-band display. Concepts 02–06 stripped from the import. |
+| **P0.6** | **Concept 01 view** | Browser renders the imported demo HTML landed in the repo at `web/index.html` (Concept 01 only — import source-of-truth note lives in `tasks.md` T1.7), data-driven from `/api/pr/:id/rev/:n`. Title, chapter sidebar, marker headings, file-pill spans, hunks with attribution chips and confidence bands. Skeleton renders before chapters stream in. Numeric `conf 0.94` replaced with word-band display. Concepts 02–06 stripped from the import. |
 | **P0.7** | **GitHub link out** | If `gh pr view --json url` returns a URL, display "View on GitHub" in the header. Otherwise show the branch name. `gh` missing/unauthed swallowed silently. |
 | **P0.8** | **Comments and approvals** | Stored on the revision they were left on. Markdown body, no threading, no resolution state, no line-anchoring. Header pill on the latest revision: "N comments on earlier revisions · view" → opens a revision picker. |
 | **P0.9** | **Revision diff view** | `GET /pr/:id/rev/:n/diff` renders code delta and chapter delta between revision `n` and `n-1`. Hunks tagged added/removed/unchanged. Chapters tagged added/dropped/inherited/regenerated. For `n=1`, shows the same view as the initial revision (no prior to diff against). |
