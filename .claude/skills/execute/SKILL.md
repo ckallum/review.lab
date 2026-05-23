@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@2a7c883
+_origin: calsuite@0ce554a
 name: execute
 version: 2.1.0
 description: |
@@ -284,7 +284,7 @@ description: "Quality review: <task title>"
 
 ### 3d: Simplify
 
-After quality review passes, run `/simplify` to clean up the changed code — reuse opportunities, clarity, consistency. This ensures the final code is polished before marking the task complete.
+After quality review passes, run `/code-review` to clean up the changed code — reuse opportunities, clarity, consistency. This ensures the final code is polished before marking the task complete.
 
 ### 3e: Mark task complete
 
