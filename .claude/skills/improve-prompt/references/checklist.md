@@ -1,6 +1,5 @@
 ---
 _origin: calsuite@0ce554a
-_origin:
 ---
 
 # Audit checklist — fast pass
