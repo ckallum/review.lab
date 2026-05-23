@@ -372,6 +372,6 @@ jobs:
 After this spec lands:
 - **Engineering ticket breakdown** — slice P0 into ~10 implementation tickets.
 - **Skill content** — write the actual `SKILL.md` for `/publish-review`.
-- **Demo HTML import** — extract Concept 01 from `~/Documents/Claude/Projects/review.dev/review-dev-demo.html` into this repo at `web/index.html`.
+- **Demo HTML import** — extract Concept 01 from the local reference demo (source path tracked outside the repo) into this repo at `web/index.html`. The import target is the contract; the source path is a local implementation detail.
 - **Refresh diagrams.md** — Draft 4 invalidates the chapter-lifecycle state machine (locked/orphaned are gone) and the supersedes sequence diagram. New diagrams needed: revision lifecycle, revision-diff view, chapter-inheritance LLM call.
 - **Stakeholder pitch** — if Phase 2 becomes real.
