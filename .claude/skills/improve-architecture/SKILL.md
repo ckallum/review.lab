@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@2a7c883
+_origin: calsuite@0ce554a
 name: improve-architecture
 version: 1.0.0
 description: |
@@ -26,7 +26,7 @@ allowed-tools:
 
 Surface architectural friction and propose **deepening opportunities** — refactors that turn shallow modules into deep ones. The goal is testability and AI-navigability: a codebase a fresh agent can navigate quickly, with bugs concentrated in one place, not scattered.
 
-Run periodically — every few weeks, or when the codebase starts to feel like a ball of mud. Pairs with `/simplify` (per-change cleanup) and `/review` (pre-merge) — `/improve-architecture` is the **codebase-wide health check** the others don't do.
+Run periodically — every few weeks, or when the codebase starts to feel like a ball of mud. Pairs with `/code-review` (per-change cleanup) and `/review` (pre-merge) — `/improve-architecture` is the **codebase-wide health check** the others don't do.
 
 ## Vocabulary
 
@@ -200,6 +200,6 @@ This gives the next audit (in a few weeks) a starting point and prevents re-liti
 - **Don't propose interfaces in Step 4.** Wait for the user to pick a candidate. Proposing concrete interfaces upfront is wasted work — most candidates won't be picked.
 - **Use the deletion test, not feel.** "This feels too shallow" is not a finding. "Deleting this module would push complexity into 5 callers, none of which would benefit from owning that complexity" is.
 - **Don't re-litigate ADRs unprompted.** If a candidate contradicts an ADR and the friction isn't severe, drop it silently. Only surface ADR-contradicting candidates when the friction is real and worth a discussion.
-- **Stay codebase-wide unless scoped.** This is the proactive health check — `/simplify` already covers per-change cleanup. If the user wants a focused review, they'll pass a path argument.
+- **Stay codebase-wide unless scoped.** This is the proactive health check — `/code-review` already covers per-change cleanup. If the user wants a focused review, they'll pass a path argument.
 - **The skill is read-and-decide, not write-and-implement.** When a candidate is approved, hand off to `/plan review` → `/execute`. Don't refactor inside this skill.
 - **AFK / HITL marking on follow-up issues.** When approved candidates spawn issues (via `/sweep-issues`), tag them AFK (clearly-spec'd refactor) or HITL (needs design decision) per the standard convention.

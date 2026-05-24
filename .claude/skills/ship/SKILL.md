@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@2a7c883
+_origin: calsuite@0ce554a
 name: ship
 version: 1.0.0
 description: |
@@ -84,7 +84,7 @@ git push -u origin $(git branch --show-current)
 
 Run the Pre-PR Gates from **Step 7.4** (PR-size, test-presence, spec-contract) before drafting the body. Even in pr-only mode, these gates surface useful warnings — the test-presence gate typically stays silent on docs/config changes because it only warns when `code_additions > 50`. Spec-contract still applies if the repo has active specs.
 
-Read the PR body template at `skills/ship/pr-template.md`. Draft the PR body following the template structure, but omit Test Results and Pre-Landing Review sections (not applicable in pr-only mode). Skip diagrams for trivial changes (< 50 lines, single-file edits). If any Pre-PR Gate produced findings, include them below Summary as a `## Pre-PR Gates` section.
+Read the PR body template at `.claude/skills/ship/pr-template.md`. Draft the PR body following the template structure, but omit Test Results and Pre-Landing Review sections (not applicable in pr-only mode). Skip diagrams for trivial changes (< 50 lines, single-file edits). If any Pre-PR Gate produced findings, include them below Summary as a `## Pre-PR Gates` section.
 
 Run **Step 8.5** (PR-claim-vs-diff grep) against the drafted body before calling `gh pr create`.
 
@@ -342,7 +342,7 @@ fi
 ```
 
 If `added > 400`, emit:
-```
+```text
 ⚠ PR size: <N> lines added. Large PRs get surface-level reviews.
   Top files:
     <N1> lines  <path1>
@@ -376,7 +376,7 @@ code_additions=$(git diff origin/main -- \
 ```
 
 If `code_additions > 50` AND `new_tests == 0`, emit:
-```
+```text
 ⚠ Test-presence: <N> lines of code added, zero new tests.
   Code-only files (no tests alongside):
     <list of non-test files with net-positive additions>
@@ -403,7 +403,7 @@ fi
 
 For each critical glob, check whether any diff file matches it (use the same glob-matching logic as `lint-gate.cjs`). If a critical path is touched AND `new_tests == 0`, emit a strong warning that cites the matching glob:
 
-```
+```text
 ⚠ Test-presence (STRICT): critical path touched without tests.
   Matched glob: <glob pattern>
   Files: <matching files from diff>
@@ -433,7 +433,7 @@ Flag two classes:
   - **EXTRA:** diff introduces behavior (new command handler, new event emitter, new persisted field) not described anywhere in `design.md`.
 
 For each deviation, use AskUserQuestion individually:
-```
+```text
 <Deviation description — what the spec says vs what the diff does>
 
 Recommendation: [A or B, lead with your pick and 1-sentence reason]
@@ -484,7 +484,7 @@ If the trace file is missing or empty, skip the `## Development Flow` section en
 
 ## Step 8: Draft PR body
 
-Read the PR body template at `skills/ship/pr-template.md` and follow its structure exactly.
+Read the PR body template at `.claude/skills/ship/pr-template.md` and follow its structure exactly.
 
 Populate each section:
 - **Summary** — bullet points from CHANGELOG entries (what shipped)
@@ -519,7 +519,7 @@ Before creating the PR, cross-check the drafted body against the actual diff. Th
    ```
 
 3. If any claims are missing from the diff, surface them above the PR body draft:
-   ```
+   ```text
    ⚠ PR body claims not found in diff:
      - `hydrated_from_storage`  — mentioned in Summary, not in any changed file
      - `session-hydrate-degraded` — mentioned in How It Works, not emitted anywhere
