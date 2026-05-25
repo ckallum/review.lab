@@ -6,7 +6,7 @@ Each task is sized to be one logical commit / one PR. `/execute` SPEC mode shoul
 
 ## Phase 1 — Foundation (Week 1)
 
-- [ ] **T1.1 — Project scaffold.** `bun init`, add Hono, Vitest, TypeScript, prettier. `package.json` exposes `reviewdev serve` and `reviewdev publish` binaries via a thin `src/cli.ts` dispatcher. Tests pass on a stub.
+- [x] **T1.1 — Project scaffold.** `bun init`, add Hono, Vitest, TypeScript, prettier. `package.json` exposes `reviewdev serve` and `reviewdev publish` binaries via a thin `src/cli.ts` dispatcher. Tests pass on a stub.
 - [ ] **T1.2 — SQLite schema + migrations system.** `migrations/001_initial.sql` lays down the 9 tables from [design.md](design.md#data-model). `src/db/migrate.ts` applies forward-only on serve start. WAL mode + `BEGIN IMMEDIATE` for writes. `meta` table tracks applied versions.
 - [ ] **T1.3 — `reviewdev serve` skeleton.** Hono server with port probe (7891–7899), writes chosen port to `<repo>/.reviewdev/port`. `GET /health` returns `{ok: true, port: N, schema_version: N}`. Foreground process, structured logs to stdout.
 - [ ] **T1.4 — `reviewdev publish` core.** Resolve repo root from cwd; read port file; auto-detect base branch; `git fetch` with 60s throttle; `git diff $(merge-base HEAD origin/<base>)..HEAD`; parse hunks; compute `SHA-256(file_path + "\n" + content)` per hunk.
