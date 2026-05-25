@@ -1,3 +1,17 @@
 
 # calsuite (personal harness) — never commit
 .claude/settings.local.json
+
+# node / bun
+node_modules/
+bun.lockb
+
+# build / runtime
+dist/
+*.log
+
+# per-repo reviewdev state (writeable by `reviewdev serve` and `publish`)
+.reviewdev/
+
+# macOS
+.DS_Store
