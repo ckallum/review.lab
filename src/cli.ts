@@ -22,12 +22,18 @@ export type Io = {
 
 export type CommandHandler = (args: readonly string[], io: Io) => Promise<number>;
 
-const COMMANDS: Record<string, CommandHandler> = {
+export type CommandMap = Record<string, CommandHandler>;
+
+export const COMMANDS: CommandMap = {
   serve: runServe,
   publish: runPublish,
 };
 
-export async function main(argv: readonly string[], io: Io = process): Promise<number> {
+export async function main(
+  argv: readonly string[],
+  io: Io = process,
+  commands: CommandMap = COMMANDS,
+): Promise<number> {
   const [cmd, ...rest] = argv;
 
   if (cmd === undefined || cmd === 'help' || cmd === '--help' || cmd === '-h') {
@@ -35,7 +41,7 @@ export async function main(argv: readonly string[], io: Io = process): Promise<n
     return 0;
   }
 
-  const handler = COMMANDS[cmd];
+  const handler = commands[cmd];
   if (!handler) {
     io.stderr.write(`reviewdev: unknown command '${cmd}'\n\n${HELP}`);
     return 2;

@@ -4,11 +4,13 @@
   "description": "Local PR review surface for agent-authored code.",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "bun": ">=1.1.0"
+  },
   "bin": {
     "reviewdev": "./src/cli.ts"
   },
   "scripts": {
-    "reviewdev": "bun run src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
