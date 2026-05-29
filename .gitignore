@@ -13,5 +13,8 @@ dist/
 # per-repo reviewdev state (writeable by `reviewdev serve` and `publish`)
 .reviewdev/
 
+# /review skill scratch file
+.claude/.last-review
+
 # macOS
 .DS_Store

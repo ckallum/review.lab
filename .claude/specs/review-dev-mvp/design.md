@@ -32,6 +32,10 @@ browser → /pr/:id → /pr/:id/rev/<latest> (skeleton, SSE chapters arrive)
 
 See [diagrams.md](diagrams.md) for full Mermaid flows: publish pipeline, user navigation, concurrent-publishes sequence, revision diff view.
 
+### Source layout
+
+A thin `src/cli.ts` dispatcher routes the `reviewdev` binary's subcommands. Each subcommand handler lives at `src/commands/<name>.ts` exporting a `CommandHandler` (`(args, io) => Promise<number>`). T1.1 lands `serve` and `publish` stubs at that path; T1.3 / T1.4 replace the stubs in place with the real implementations.
+
 ## Data Model
 
 One SQLite DB per repo at `<repo-root>/.reviewdev/db.sqlite`. Path is gitignored on first `reviewdev publish`. Schema versions tracked in a `meta` table; numbered migrations in `migrations/NNN_*.sql` apply forward-only on `reviewdev serve` start.

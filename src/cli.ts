@@ -22,7 +22,11 @@ export type Io = {
 
 export type CommandHandler = (args: readonly string[], io: Io) => Promise<number>;
 
-export type CommandMap = Record<string, CommandHandler>;
+// Registered command names. Adding a new one here is a compile-time prompt
+// to also update the HELP string and the COMMANDS map below.
+export type CommandName = 'serve' | 'publish';
+
+export type CommandMap = Record<CommandName, CommandHandler>;
 
 export const COMMANDS: CommandMap = {
   serve: runServe,
@@ -41,13 +45,12 @@ export async function main(
     return 0;
   }
 
-  const handler = commands[cmd];
-  if (!handler) {
+  if (!Object.hasOwn(commands, cmd)) {
     io.stderr.write(`reviewdev: unknown command '${cmd}'\n\n${HELP}`);
     return 2;
   }
 
-  return handler(rest, io);
+  return commands[cmd as CommandName](rest, io);
 }
 
 // `import.meta.main` is Bun-only; under Vitest's node environment it is
