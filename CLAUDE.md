@@ -31,6 +31,11 @@ Per-ticket: `/execute spec:review-dev-mvp` walks tickets in order. For each tick
 
 PR-only mode (`/ship pr`) is for docs / config / skill-only changes where the full test + simplify + review gauntlet is overkill.
 
+## Gotchas
+
+### Updating PR bodies on this repo
+`gh pr edit --body-file` silently no-ops on this repo because of a `repository.pullRequest.projectCards` deprecation that fires inside the same GraphQL request. The CLI prints a warning and exits 0; the body never changes. Use `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -F body=@<file>` instead — it's REST, no GraphQL — and re-fetch `.body` afterwards to confirm the update took. The `/ship` and `/receiving-pr-feedback` skills both prescribe `gh pr edit` and need this workaround until the upstream gh CLI handles the deprecation cleanly.
+
 ## Personal-path and secret hygiene
 
 Local pre-commit and pre-push hooks block personal filesystem paths, the author's username, and secrets (gitleaks). The blocked patterns are enumerated at `.git/info/PREVENTION.md`. Never `--no-verify`. If a hook blocks, reword the line — the hook is the prevention mechanism, not an obstacle to bypass.
