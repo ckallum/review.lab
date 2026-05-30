@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.reviewdev/
+bun.lock
+bun.lockb
+
+# specs and prose — formatted by hand, not by prettier
+SPEC.md
+SPECLOG.md
+CLAUDE.md
+.claude/
+docs/
