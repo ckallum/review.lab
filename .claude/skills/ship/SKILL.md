@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@0ce554a
+_origin: calsuite@dfaf5b4
 name: ship
 version: 1.0.0
 description: |
@@ -414,13 +414,16 @@ If `strict: true` in ship-config.json, this blocks. Otherwise surface and contin
 
 ### Gate 3 — Spec-contract deviation
 
-Detect the active spec the same way `/review` Agent I does:
+Detect the active spec the same way `/review` Agent I does — strip standard
+feature-branch prefixes, then require an exact spec directory match. Do NOT
+fall back to "first spec under `.claude/specs/`" — for issue-driven branches
+(e.g. `claude/<task>`) the fallback grabs an unrelated spec and Gate 3 runs
+against the wrong contract. Better to skip cleanly when there's no match.
 ```bash
 branch=$(git branch --show-current)
 slug=$(echo "$branch" | sed -E 's#^(feat|fix|chore|refactor|feature)/##')
 SPEC_DIR=""
 [ -d ".claude/specs/$slug" ] && SPEC_DIR=".claude/specs/$slug"
-[ -z "$SPEC_DIR" ] && SPEC_DIR=$(find .claude/specs -mindepth 1 -maxdepth 2 -name design.md -exec dirname {} \; 2>/dev/null | head -1)
 ```
 
 If `$SPEC_DIR` is non-empty:
