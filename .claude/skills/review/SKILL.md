@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@2a7c883
+_origin: calsuite@dfaf5b4
 name: review
 version: 1.1.0
 description: |
@@ -379,22 +379,30 @@ if [ ! -s "$DIFF_FILE" ]; then
   fi
 fi
 
-# Agent F — silent failure hunter
-F_COUNT=$(grep -cE 'catch|\.catch|fallback|onError|Result<' "$DIFF_FILE" || echo 0)
+# Agent F — silent failure hunter. `grep -c` always prints the count to stdout
+# (0 on no match) and exits 1 on no match. Append `|| true` (not `|| echo 0`)
+# to absorb the exit-1: `|| echo 0` would append a second "0" and produce a
+# two-line "0\n0" string that breaks `-gt` tests, while bare `grep -c` would
+# abort the script under `set -euo pipefail`. `|| true` gives the count without
+# either failure mode.
+F_COUNT=$(grep -cE 'catch|\.catch|fallback|onError|Result<' "$DIFF_FILE" || true)
 # Agent G — type design review
-G_COUNT=$(grep -cE 'interface |type |enum |class |struct ' "$DIFF_FILE" || echo 0)
+G_COUNT=$(grep -cE 'interface |type |enum |class |struct ' "$DIFF_FILE" || true)
 # Agent H — cross-module format consistency (any touched source file qualifies).
 # Diff headers have the form "+++ b/path/to/file.ext" — grep those to count touched source files.
-H_COUNT=$(grep -cE '^\+\+\+ b/.*\.(rs|ts|tsx|js|jsx|py|go|sql)$' "$DIFF_FILE" || echo 0)
-# Agent I — spec-contract deviation (branch has a matching spec)
+H_COUNT=$(grep -cE '^\+\+\+ b/.*\.(rs|ts|tsx|js|jsx|py|go|sql)$' "$DIFF_FILE" || true)
+# Agent I — spec-contract deviation (branch has a matching spec).
+# Strip standard feature-branch prefixes, then require an exact spec directory
+# match. Do NOT fall back to "first spec under .claude/specs/" — for issue-driven
+# branches (e.g. claude/<task>) the fallback grabs an unrelated spec and Agent I
+# runs against the wrong contract. Better to skip cleanly when there's no match.
 branch=$(git branch --show-current)
 slug=$(echo "$branch" | sed -E 's#^(feat|fix|chore|refactor|feature)/##')
 SPEC_DIR=""
 [ -d ".claude/specs/$slug" ] && SPEC_DIR=".claude/specs/$slug"
-[ -z "$SPEC_DIR" ] && SPEC_DIR=$(find .claude/specs -mindepth 1 -maxdepth 2 -name design.md -exec dirname {} \; 2>/dev/null | head -1)
 
 # Also gate the versioned-struct pass inside Agent B:
-VERSIONED_STRUCT=$(grep -cE '(_VERSION|version:\s*(number|u?[0-9]+))' "$DIFF_FILE" || echo 0)
+VERSIONED_STRUCT=$(grep -cE '(_VERSION|version:\s*(number|u?[0-9]+))' "$DIFF_FILE" || true)
 ```
 
 If the respective count is 0 (or `$SPEC_DIR` empty for Agent I), skip that agent.

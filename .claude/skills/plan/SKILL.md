@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@2a7c883
+_origin: calsuite@dfaf5b4
 name: plan
 version: 1.0.0
 description: |
@@ -195,7 +195,7 @@ Conduct a deep, multi-round interview using AskUserQuestion. The goal is to surf
 
 Interview guidelines:
 - **Do NOT ask obvious questions** that the spec already answers clearly.
-- **Do ask about:** hidden complexity, conflicting requirements, unstated assumptions, failure modes, edge cases, scaling concerns, security implications, data model subtleties, UX micro-interactions, state management tradeoffs, migration paths, backwards compatibility, error handling strategy, and integration boundaries.
+- **Do ask about:** hidden complexity, conflicting requirements, unstated assumptions, failure modes, edge cases, scaling concerns, security implications, data model subtleties, UX micro-interactions, state management tradeoffs, migration paths, backwards compatibility, error handling strategy, performance budgets, accessibility considerations, and integration boundaries.
 - **Be specific.** Reference concrete parts of the spec. Instead of "how should errors work?", ask "when this background job fails after processing 3 of 10 items, what should the user see?"
 - **Go deep on answers.** Follow up on interesting responses. If the user says "we'll use a queue", ask about retry policy, idempotency, ordering guarantees, dead letter handling.
 - **Cover multiple dimensions per round.** Keep each AskUserQuestion focused on one decision, but cover multiple topics across a round to keep the interview moving.
@@ -214,6 +214,7 @@ Rewrite the spec file incorporating all decisions from the interview:
 - Integrate all interview answers as concrete decisions (not as Q&A)
 - Add new sections for topics that emerged
 - Follow the spec format: `requirements.md`, `design.md`, `tasks.md`
+- Write it as a definitive spec, not a discussion document
 - Flag any remaining open questions
 - **If `LIFECYCLE=1`** (see Lifecycle Detection above): include a state × event matrix in `design.md` under a `## State Transitions` section. Every cell must be filled — fuzzy cells get called out as open questions.
 
