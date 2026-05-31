@@ -1,0 +1,998 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>review.dev · System Architecture (Draft 4)</title>
+    <style>
+      :root {
+        --bg: #fafaf7;
+        --bg-card: #ffffff;
+        --bg-sunken: #f1efe9;
+        --fg: #1a1a1a;
+        --fg-muted: #6b6b6b;
+        --fg-dim: #9a9a9a;
+        --border: #e5e3dc;
+        --border-strong: #cfccc2;
+        --accent: #c2410c;
+        --accent-soft: #fef3eb;
+        --good: #2f7d32;
+        --warn: #a55b00;
+        --danger: #b91c1c;
+        --code-bg: #f4f2eb;
+        --pill-bg: #efece2;
+        --shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 8px 24px -16px rgba(0, 0, 0, 0.12);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0e0e0d;
+          --bg-card: #1a1a18;
+          --bg-sunken: #131311;
+          --fg: #ececea;
+          --fg-muted: #a3a39d;
+          --fg-dim: #6b6b66;
+          --border: #2a2a27;
+          --border-strong: #3a3a36;
+          --accent: #f59e4d;
+          --accent-soft: #2a1d10;
+          --good: #6ab86a;
+          --warn: #d4a04b;
+          --danger: #ef6868;
+          --code-bg: #161614;
+          --pill-bg: #232220;
+          --shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 8px 24px -16px rgba(0, 0, 0, 0.4);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Inter',
+          'Segoe UI',
+          sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      code,
+      pre,
+      .mono {
+        font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 0.92em;
+      }
+      code {
+        background: var(--code-bg);
+        padding: 0.1em 0.4em;
+        border-radius: 4px;
+        color: var(--fg);
+      }
+
+      .page {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 56px 32px 96px;
+      }
+
+      /* Hero */
+      .hero {
+        margin-bottom: 56px;
+      }
+      .pre-label {
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 11.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 12px;
+      }
+      .hero h1 {
+        font-size: 40px;
+        line-height: 1.15;
+        margin: 0 0 12px;
+        letter-spacing: -0.02em;
+      }
+      .hero h1 em {
+        font-style: normal;
+        border-bottom: 2px solid var(--accent);
+      }
+      .hero p.lede {
+        font-size: 17px;
+        color: var(--fg-muted);
+        max-width: 64ch;
+        margin: 0 0 20px;
+      }
+      .meta-pills {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .pill {
+        background: var(--pill-bg);
+        color: var(--fg-muted);
+        border: 1px solid var(--border);
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-family: ui-monospace, 'SF Mono', monospace;
+      }
+      .pill.accent {
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-color: transparent;
+      }
+
+      /* Section */
+      section.s {
+        margin: 56px 0 0;
+      }
+      section.s > header {
+        margin-bottom: 20px;
+      }
+      section.s .marker {
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 11.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+        display: block;
+        margin-bottom: 4px;
+      }
+      section.s h2 {
+        font-size: 24px;
+        margin: 0 0 6px;
+        letter-spacing: -0.01em;
+      }
+      section.s p.intro {
+        margin: 0 0 16px;
+        color: var(--fg-muted);
+        max-width: 70ch;
+      }
+
+      /* Card */
+      .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: var(--shadow);
+      }
+      .card + .card {
+        margin-top: 12px;
+      }
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+      .grid.cols-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+      @media (max-width: 820px) {
+        .grid.cols-3 {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* Process card */
+      .proc {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+      }
+      .proc .role {
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--fg-dim);
+        margin-bottom: 6px;
+      }
+      .proc h3 {
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 14px;
+        margin: 0 0 10px;
+        color: var(--accent);
+      }
+      .proc p {
+        margin: 0 0 10px;
+        color: var(--fg-muted);
+        font-size: 13.5px;
+      }
+      .proc ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--fg-muted);
+        font-size: 13.5px;
+      }
+      .proc ul li {
+        margin-bottom: 4px;
+      }
+      .proc .lifetime {
+        display: inline-block;
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 11.5px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        margin-top: 6px;
+      }
+
+      /* Table — used for tables of data and the data model */
+      table.t {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+      table.t th,
+      table.t td {
+        text-align: left;
+        padding: 11px 14px;
+        border-bottom: 1px solid var(--border);
+        font-size: 13.5px;
+        vertical-align: top;
+      }
+      table.t tr:last-child td {
+        border-bottom: 0;
+      }
+      table.t th {
+        background: var(--bg-sunken);
+        font-weight: 600;
+        color: var(--fg);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+      }
+      table.t td.mono {
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 12.5px;
+        color: var(--accent);
+        white-space: nowrap;
+      }
+      table.t td.muted {
+        color: var(--fg-muted);
+      }
+      table.t .role-tag {
+        display: inline-block;
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 10.5px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: var(--pill-bg);
+        color: var(--fg-muted);
+        margin-right: 6px;
+      }
+      table.t .role-tag.r-rev {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      table.t .role-tag.r-pull {
+        background: rgba(47, 125, 50, 0.12);
+        color: var(--good);
+      }
+      table.t .role-tag.r-action {
+        background: rgba(165, 91, 0, 0.1);
+        color: var(--warn);
+      }
+      table.t .role-tag.r-obs {
+        background: rgba(185, 28, 28, 0.08);
+        color: var(--danger);
+      }
+
+      /* Mermaid container */
+      .diagram-wrap {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: var(--shadow);
+        overflow-x: auto;
+      }
+      .diagram-wrap .caption {
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 11.5px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--fg-dim);
+        margin-top: 14px;
+      }
+      .diagram-wrap .mermaid {
+        text-align: center;
+      }
+      .diagram-wrap + .diagram-wrap {
+        margin-top: 16px;
+      }
+
+      /* File pill — same vocabulary as the Concept 01 demo */
+      .file-pill {
+        display: inline-block;
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 11.5px;
+        padding: 2px 8px;
+        background: var(--pill-bg);
+        color: var(--fg-muted);
+        border-radius: 4px;
+        margin: 0 4px 4px 0;
+      }
+
+      /* Decisions inline list */
+      ul.decisions {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      ul.decisions li {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+        box-shadow: var(--shadow);
+      }
+      ul.decisions .h {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 4px;
+      }
+      ul.decisions .what {
+        font-weight: 600;
+        font-size: 14px;
+      }
+      ul.decisions .pick {
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 12px;
+        color: var(--accent);
+        text-align: right;
+      }
+      ul.decisions .why {
+        color: var(--fg-muted);
+        font-size: 13px;
+        margin: 0;
+      }
+
+      /* Failure modes list */
+      .fm {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr 1.4fr;
+        gap: 14px;
+      }
+      @media (max-width: 820px) {
+        .fm {
+          grid-template-columns: 1fr;
+        }
+      }
+      .fm-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px;
+        font-size: 13px;
+      }
+      .fm-card .h {
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--fg-dim);
+        margin-bottom: 4px;
+      }
+      .fm-card .what {
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .fm-card .resp {
+        color: var(--fg-muted);
+      }
+
+      /* Footer */
+      footer.foot {
+        margin-top: 72px;
+        padding-top: 24px;
+        border-top: 1px solid var(--border);
+        color: var(--fg-dim);
+        font-size: 12px;
+        font-family: ui-monospace, 'SF Mono', monospace;
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      footer.foot a {
+        color: var(--fg-muted);
+      }
+
+      /* Mermaid theme adjustments */
+      .mermaid svg {
+        max-width: 100%;
+        height: auto;
+      }
+    </style>
+    <script
+      src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js"
+      integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        mermaid.initialize({
+          startOnLoad: true,
+          theme: dark ? 'dark' : 'neutral',
+          themeVariables: {
+            fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+            fontSize: '13px',
+            primaryColor: dark ? '#1a1a18' : '#ffffff',
+            primaryTextColor: dark ? '#ececea' : '#1a1a1a',
+            primaryBorderColor: dark ? '#3a3a36' : '#cfccc2',
+            lineColor: dark ? '#a3a39d' : '#6b6b6b',
+            secondaryColor: dark ? '#2a1d10' : '#fef3eb',
+            tertiaryColor: dark ? '#232220' : '#f1efe9',
+          },
+          flowchart: { curve: 'basis', padding: 12, htmlLabels: true },
+          sequence: { actorMargin: 60, messageMargin: 35 },
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <p class="pre-label">review.dev · system architecture</p>
+        <h1>A local PR review surface, alongside <em>GitHub</em>.</h1>
+        <p class="lede">
+          Claude Code's <code>/publish-review</code> skill shells out to
+          <code>reviewdev publish</code>, which uploads the current branch's diff to a per-repo
+          <code>reviewdev serve</code> instance. Every successful publish creates an immutable
+          <em>revision</em> with its own hunks, chapters, decisions, and comments. The browser opens
+          to a story-shaped view of the latest revision; a diff view links each revision to its
+          predecessor. GitHub remains canonical.
+        </p>
+        <div class="meta-pills">
+          <span class="pill accent">Draft 4</span>
+          <span class="pill">May 2026</span>
+          <span class="pill">Single-user</span>
+          <span class="pill">Local-first</span>
+          <span class="pill">No telemetry</span>
+          <span class="pill">Bun · Hono · SQLite</span>
+        </div>
+      </header>
+
+      <!-- §01 Topology -->
+      <section class="s">
+        <header>
+          <span class="marker">§ 01 · Topology</span>
+          <h2>The system at a glance</h2>
+          <p class="intro">
+            Five components. One DB per repo. Two external services. The browser is downstream of
+            everything.
+          </p>
+        </header>
+        <div class="diagram-wrap">
+          <div class="mermaid">
+            flowchart LR user([Developer]):::actor user -->|"types /publish-review"| cc[Claude Code
+            session] cc -->|shell out| pub["reviewdev publish<br />(one-shot CLI)"]:::proc pub
+            -->|"git diff + hash hunks<br />read transcript JSONL"| pub pub -->|"POST /api/pr"|
+            serve["reviewdev serve<br />(per-repo Hono on Bun)"]:::proc pub -->|"gh pr view --json
+            url"| gh[GitHub]:::ext pub -.->|"read"| transcripts["~/.claude/projects/<br />*.jsonl"]:::ext
+            serve -->|"WAL · BEGIN IMMEDIATE"| db["&lt;repo&gt;/.reviewdev/db.sqlite"]:::db serve
+            -->|"stream prompt"| anth["Anthropic API<br />claude-sonnet-4-7"]:::ext anth -.->|"SSE
+            chapters + decisions"| serve serve -->|"GET /pr/:id/rev/:n"| browser[Browser · Concept
+            01]:::browser browser -.->|"EventSource SSE"| serve serve -.->|"POST comments +
+            approvals"| db classDef actor
+            fill:transparent,stroke:#c2410c,color:#c2410c,font-weight:bold,stroke-width:1.5px
+            classDef proc fill:#fef3eb,stroke:#c2410c,color:#c2410c,stroke-width:1.5px classDef ext
+            fill:transparent,stroke:#9a9a9a,color:#6b6b6b,stroke-dasharray: 4 3 classDef db
+            fill:#f4f2eb,stroke:#3a3a36,color:#1a1a1a classDef browser
+            fill:transparent,stroke:#2f7d32,color:#2f7d32,stroke-width:1.5px
+          </div>
+          <p class="caption">
+            Solid edges = synchronous calls. Dashed edges = SSE / read-only. One
+            <code>reviewdev serve</code> process per repo. Each repo binds to a port in
+            <code>7891–7899</code>.
+          </p>
+        </div>
+      </section>
+
+      <!-- §02 Processes -->
+      <section class="s">
+        <header>
+          <span class="marker">§ 02 · Processes</span>
+          <h2>Three runtimes, one shared store</h2>
+          <p class="intro">
+            The publish CLI is one-shot. The serve process is long-running, per-repo, foreground.
+            The browser is stateless and reconnects on demand.
+          </p>
+        </header>
+        <div class="grid cols-3">
+          <article class="proc">
+            <p class="role">One-shot</p>
+            <h3>reviewdev publish</h3>
+            <p>
+              Called by the Claude Code skill. Resolves the diff vs
+              <code>origin/&lt;base&gt;</code> after <code>git fetch</code> + merge-base, hashes
+              hunks, uploads via <code>POST /api/pr</code>, opens the browser.
+            </p>
+            <ul>
+              <li>Reads <code>$CLAUDE_SESSION_ID</code> + transcripts</li>
+              <li>Best-effort <code>gh pr view --json url</code></li>
+              <li>Returns URL within 2s (p95)</li>
+            </ul>
+            <span class="lifetime">lives ~5s</span>
+          </article>
+          <article class="proc">
+            <p class="role">Long-running</p>
+            <h3>reviewdev serve</h3>
+            <p>
+              Per-repo Hono server. Probes ports <code>7891–7899</code>, writes the chosen one to
+              <code>&lt;repo&gt;/.reviewdev/port</code>. Runs migrations on startup. Streams chapter
+              generation via SSE.
+            </p>
+            <ul>
+              <li>HTTP + SSE; binds to <code>localhost</code> only</li>
+              <li>Writes via <code>BEGIN IMMEDIATE</code></li>
+              <li>Foreground process (tmux / launchd)</li>
+            </ul>
+            <span class="lifetime">lives indefinitely</span>
+          </article>
+          <article class="proc">
+            <p class="role">Stateless</p>
+            <h3>Browser · Concept 01</h3>
+            <p>
+              Renders <code>web/index.html</code> data-driven from <code>/api/pr/:id/rev/:n</code>.
+              Skeleton paints immediately; chapters stream in over <code>EventSource</code>. Old
+              tabs pin to the revision they opened on.
+            </p>
+            <ul>
+              <li>Vanilla JS — no build step</li>
+              <li>Reconnects on connection drop</li>
+              <li>No revision auto-refresh</li>
+            </ul>
+            <span class="lifetime">lives per-tab</span>
+          </article>
+        </div>
+      </section>
+
+      <!-- §03 Data model -->
+      <section class="s">
+        <header>
+          <span class="marker">§ 03 · Data model</span>
+          <h2>Ten tables, scoped by revision</h2>
+          <p class="intro">
+            One SQLite DB per repo at <code>&lt;repo-root&gt;/.reviewdev/db.sqlite</code>. WAL mode;
+            numbered SQL migrations applied on serve start. Revisions are immutable — every publish
+            snaps a new one.
+          </p>
+        </header>
+        <table class="t">
+          <thead>
+            <tr>
+              <th>Table</th>
+              <th>Scope</th>
+              <th>What it holds</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">pulls</td>
+              <td><span class="role-tag r-pull">Identity</span></td>
+              <td>One per branch. Title, base, github_url, status.</td>
+            </tr>
+            <tr>
+              <td class="mono">sessions</td>
+              <td><span class="role-tag r-pull">Identity</span></td>
+              <td>
+                Claude Code sessions correlated to this branch via <code>cwd</code>. Sessions span
+                revisions.
+              </td>
+            </tr>
+            <tr>
+              <td class="mono">revisions</td>
+              <td><span class="role-tag r-rev">Revision</span></td>
+              <td>
+                <code>number</code>, <code>git_head_sha</code>, <code>git_base_sha</code>,
+                <code>diff_hash</code>. Duplicate-publish detection via <code>diff_hash</code>.
+              </td>
+            </tr>
+            <tr>
+              <td class="mono">hunks</td>
+              <td><span class="role-tag r-rev">Revision</span></td>
+              <td>
+                Diff hunks. <code>id = SHA-256(file_path + content)</code>. Same hash can appear in
+                multiple revisions.
+              </td>
+            </tr>
+            <tr>
+              <td class="mono">chapters</td>
+              <td><span class="role-tag r-rev">Revision</span></td>
+              <td>
+                LLM-generated groupings. <code>inherited_from_chapter_id</code> tracks reuse from
+                the prior revision.
+              </td>
+            </tr>
+            <tr>
+              <td class="mono">chapter_hunks</td>
+              <td><span class="role-tag r-rev">Revision</span></td>
+              <td>Many-to-many within a revision.</td>
+            </tr>
+            <tr>
+              <td class="mono">decisions</td>
+              <td><span class="role-tag r-rev">Revision</span></td>
+              <td>Extracted in the same LLM call as chapters.</td>
+            </tr>
+            <tr>
+              <td class="mono">comments</td>
+              <td><span class="role-tag r-action">User action</span></td>
+              <td>Markdown body. Scoped to the revision they were left on. No migration.</td>
+            </tr>
+            <tr>
+              <td class="mono">approvals</td>
+              <td><span class="role-tag r-action">User action</span></td>
+              <td>Chapter-level signoff on a specific revision.</td>
+            </tr>
+            <tr>
+              <td class="mono">usage</td>
+              <td><span class="role-tag r-obs">Observability</span></td>
+              <td>
+                One row per LLM call. Drives the <code>$5</code> soft warning and
+                <code>REVIEWDEV_DAILY_CAP</code> hard cap.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- §04 Publish pipeline -->
+      <section class="s">
+        <header>
+          <span class="marker">§ 04 · Publish pipeline</span>
+          <h2>What happens when you press <code>/publish-review</code></h2>
+          <p class="intro">
+            From shell-out to skeleton render in &lt;2 seconds. Chapter content streams in over SSE.
+          </p>
+        </header>
+        <div class="diagram-wrap">
+          <div class="mermaid">
+            flowchart TD A[Claude Code<br />/publish-review] -->|shell| B[reviewdev publish] B
+            -->|git fetch + diff<br />merge-base..HEAD| C[Parse hunks<br />id = SHA-256
+            file+content] C -->|POST /api/pr| D[reviewdev serve] D --> E{diff_hash matches<br />latest
+            revision?} E -->|yes| F[Return existing URL<br />no new revision] E -->|no| G[(SQLite
+            WAL<br />INSERT revision N+1)] G -.->|pull_id + rev + URL| B B -->|open browser|
+            H[Browser skeleton] H -->|GET SSE /rev/:n/generate| D D -->|cost &gt; cap?| Z[Fail:
+            daily cap] D -->|no API key?| Y[File-based chapters] D -->|prompt + prior chapters<br />+
+            hash survivors| I[Anthropic<br />claude-sonnet-4-7] I -->|stream chapters + decisions| D
+            D -->|UPSERT scoped to<br />revision_id| G D -->|SSE event per chapter| H
+          </div>
+          <p class="caption">
+            Duplicate detection short-circuits before the LLM call. Inheritance hint passes the
+            prior revision's chapter titles + surviving hunk hashes so the model reuses titles where
+            the underlying hunks are unchanged.
+          </p>
+        </div>
+      </section>
+
+      <!-- §05 Revision diff -->
+      <section class="s">
+        <header>
+          <span class="marker">§ 05 · Revision diff</span>
+          <h2>What you actually changed</h2>
+          <p class="intro">
+            <code>GET /pr/:id/rev/:n/diff</code> renders code delta + chapter delta against revision
+            <code>n−1</code>. The link between two immutable snapshots.
+          </p>
+        </header>
+        <div class="diagram-wrap">
+          <div class="mermaid">
+            flowchart TD A[GET /pr/:id/rev/:n/diff] --> B{n == 1?} B -->|yes| C[Render rev 1
+            alone<br />no prior to diff] B -->|no| D[Load rev n hunks + chapters<br />and rev n-1
+            hunks + chapters] D --> E[Diff hunks by content-hash] D --> F[Diff chapters by title<br />and
+            inherited_from_chapter_id<br />and hunk membership] E --> G[Hunks rendered with<br />added
+            / removed / unchanged badges] F --> H[Chapter list rendered with<br />added / dropped /
+            inherited /<br />regenerated badges] G --> I[Header: rev N vs N-1<br />+ sha:7] H --> I
+          </div>
+          <p class="caption">
+            Hunk delta is pure set comparison on content hashes. Chapter delta is title + membership
+            + the <code>inherited_from_chapter_id</code> back-pointer. No comment delta — comments
+            are revision-scoped by design.
+          </p>
+        </div>
+      </section>
+
+      <!-- §06 Concurrency -->
+      <section class="s">
+        <header>
+          <span class="marker">§ 06 · Concurrency</span>
+          <h2>Two terminals, two revisions</h2>
+          <p class="intro">
+            Immutable revisions make concurrent publishes trivially safe. No supersedes, no
+            cancellation, no shared mutable state.
+          </p>
+        </header>
+        <div class="diagram-wrap">
+          <div class="mermaid">
+            sequenceDiagram actor T1 as Terminal A actor T2 as Terminal B participant Server as
+            serve participant DB as SQLite participant LLM as Anthropic T1->>Server: POST /api/pr
+            (diff A) Server->>DB: BEGIN IMMEDIATE Server->>DB: INSERT revision N+1 Server-->>T1: rev
+            N+1 URL T2->>Server: POST /api/pr (diff B) Server->>DB: BEGIN IMMEDIATE Server->>DB:
+            INSERT revision N+2 Server-->>T2: rev N+2 URL Note over Server,LLM: SSE streams run
+            independently per revision T1->>Server: GET SSE rev N+1 generate T2->>Server: GET SSE
+            rev N+2 generate Server->>LLM: prompt for rev N+1 Server->>LLM: prompt for rev N+2
+            LLM-->>Server: chapters rev N+1 LLM-->>Server: chapters rev N+2 Server-->>T1: events rev
+            N+1 Server-->>T2: events rev N+2
+          </div>
+          <p class="caption">
+            <code>BEGIN IMMEDIATE</code> serialises the inserts. Both publishes succeed; whichever
+            commits first is N+1, the other N+2.
+          </p>
+        </div>
+      </section>
+
+      <!-- §07 Decisions -->
+      <section class="s">
+        <header>
+          <span class="marker">§ 07 · Load-bearing decisions</span>
+          <h2>The dozen choices that shape everything else</h2>
+          <p class="intro">
+            Full Key Decisions table lives in <code>design.md</code>. These are the ones that, if
+            reversed, would touch the rest of the system.
+          </p>
+        </header>
+        <ul class="decisions">
+          <li>
+            <div class="h">
+              <span class="what">Revisions are immutable</span
+              ><span class="pick">no migration</span>
+            </div>
+            <p class="why">
+              Each publish snaps a new <code>revisions</code> row. Comments live on their revision.
+              The diff view is the link. Dropped four hard correctness surfaces (hash-based comment
+              migration, locked chapters, orphan handling, SSE supersedes).
+            </p>
+          </li>
+          <li>
+            <div class="h">
+              <span class="what">Per-repo SQLite, not global</span
+              ><span class="pick">&lt;repo&gt;/.reviewdev/db.sqlite</span>
+            </div>
+            <p class="why">
+              No P0 feature uses cross-repo. Simpler isolation. Routing becomes trivial — the cwd
+              <em>is</em> the routing key.
+            </p>
+          </li>
+          <li>
+            <div class="h">
+              <span class="what">Single combined LLM call</span
+              ><span class="pick">{chapters, decisions}</span>
+            </div>
+            <p class="why">
+              Chapters and decisions emerge from one call instead of two parallel. ~40% cost saving,
+              ~30% latency saving, no consistency drift.
+            </p>
+          </li>
+          <li>
+            <div class="h">
+              <span class="what">Chapter inheritance via prompt hint</span
+              ><span class="pick">soft, not locked</span>
+            </div>
+            <p class="why">
+              Prior chapter titles + surviving hunk hashes get passed in. Model decides reuse. No
+              lock UI, no orphan handling, no recompose button.
+            </p>
+          </li>
+          <li>
+            <div class="h">
+              <span class="what">Hunk identity is order-sensitive</span
+              ><span class="pick">SHA-256(path + content)</span>
+            </div>
+            <p class="why">
+              Reordered lines deliberately register as add/remove. Refactors are meaningful changes
+              and belong in the diff view.
+            </p>
+          </li>
+          <li>
+            <div class="h">
+              <span class="what">Foreground <code>reviewdev serve</code></span
+              ><span class="pick">no daemon</span>
+            </div>
+            <p class="why">
+              User runs it in tmux or launchd. No PID files, no auto-start, no surprise lifecycle.
+              <code>publish</code> errors fast if no server is up.
+            </p>
+          </li>
+          <li>
+            <div class="h">
+              <span class="what">SSE for chapter delivery</span
+              ><span class="pick">EventSource</span>
+            </div>
+            <p class="why">
+              Time-to-URL stays sub-2s; chapters paint as they arrive. Stale tabs pin to their
+              revision — no auto-supersede.
+            </p>
+          </li>
+          <li>
+            <div class="h">
+              <span class="what">Confidence = high for week 1</span
+              ><span class="pick">column reserved</span>
+            </div>
+            <p class="why">
+              Heuristic was on the cut-list. Schema column exists; values become real if dogfood
+              reveals the gap.
+            </p>
+          </li>
+          <li>
+            <div class="h">
+              <span class="what">Cost guardrails in DB, not vendor billing</span
+              ><span class="pick">usage table</span>
+            </div>
+            <p class="why">
+              $5/day soft warning, <code>REVIEWDEV_DAILY_CAP</code> hard cap. One env var, one row
+              per call. No third-party billing dependency.
+            </p>
+          </li>
+          <li>
+            <div class="h">
+              <span class="what">Demo HTML is the source of truth for the view</span
+              ><span class="pick">web/index.html</span>
+            </div>
+            <p class="why">
+              Concept 01 extracted from the reference demo, parameterised to fetch from the API.
+              Concepts 02–06 dropped during import.
+            </p>
+          </li>
+        </ul>
+      </section>
+
+      <!-- §08 Failure modes -->
+      <section class="s">
+        <header>
+          <span class="marker">§ 08 · Failure modes</span>
+          <h2>What can go wrong, and what shows up</h2>
+          <p class="intro">
+            Every failure path has at least one of: a test, an error path, or a non-silent user
+            signal. Full table in <code>SPEC.md</code> §Failure modes.
+          </p>
+        </header>
+        <div class="fm">
+          <div class="fm-card">
+            <div class="h">External · API</div>
+            <div class="what">Anthropic rate-limit / 5xx</div>
+            <div class="resp">
+              Retry with backoff, then surface a banner on the chapter pane: "chapter generation
+              failed — retry".
+            </div>
+          </div>
+          <div class="fm-card">
+            <div class="h">External · git</div>
+            <div class="what">Stale or unreachable origin</div>
+            <div class="resp">
+              10s fetch timeout, continue with last-known base. Warning line: "fetch failed, using
+              last-known base".
+            </div>
+          </div>
+          <div class="fm-card">
+            <div class="h">External · gh</div>
+            <div class="what">gh missing or unauthenticated</div>
+            <div class="resp">
+              stderr swallowed silently. Header shows branch name instead of "View on GitHub" link.
+            </div>
+          </div>
+          <div class="fm-card">
+            <div class="h">Local · transcript</div>
+            <div class="what">Session file missing or <code>/compact</code>ed</div>
+            <div class="resp">
+              Continue without transcript context. Compacted sessions surface a "compacted" badge in
+              the session bay.
+            </div>
+          </div>
+          <div class="fm-card">
+            <div class="h">Local · port</div>
+            <div class="what">All of 7891–7899 taken</div>
+            <div class="resp">Fail with: "no free port in 7891–7899, set REVIEWDEV_PORT".</div>
+          </div>
+          <div class="fm-card">
+            <div class="h">Local · cost</div>
+            <div class="what">REVIEWDEV_DAILY_CAP reached</div>
+            <div class="resp">
+              Publish fails before the LLM call. Clear message: "Daily cap reached, override via
+              REVIEWDEV_DAILY_CAP=N".
+            </div>
+          </div>
+          <div class="fm-card">
+            <div class="h">User · re-publish</div>
+            <div class="what">Same diff republished</div>
+            <div class="resp">
+              <code>diff_hash</code> matches latest revision. Same URL returned. No new revision
+              created. No surprise.
+            </div>
+          </div>
+          <div class="fm-card">
+            <div class="h">User · concurrent</div>
+            <div class="what">Two terminals publish same branch</div>
+            <div class="resp">
+              Both succeed. Revisions assigned in commit order via <code>BEGIN IMMEDIATE</code>.
+              Both readable.
+            </div>
+          </div>
+          <div class="fm-card">
+            <div class="h">User · stale tab</div>
+            <div class="what">Tab from yesterday's revision still open</div>
+            <div class="resp">
+              Keeps showing that revision. Reload → latest. Explicit, deterministic — by design.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- §09 Files -->
+      <section class="s">
+        <header>
+          <span class="marker">§ 09 · Where things live</span>
+          <h2>Filesystem layout</h2>
+          <p class="intro">
+            Per-repo state under <code>.reviewdev/</code> in each consuming repo. Reference demo +
+            sanitised fixture in <code>web/</code> on first import.
+          </p>
+        </header>
+        <div class="card mono" style="font-size: 13px; line-height: 1.7">
+          &lt;reviewdev install root&gt;<br />
+          ├── src/cli.ts <span style="color: var(--fg-dim)"># dispatcher: serve | publish</span
+          ><br />
+          ├── src/serve/ <span style="color: var(--fg-dim)"># Hono routes, SSE handlers</span><br />
+          ├── src/publish/ <span style="color: var(--fg-dim)"># diff + hash + upload</span><br />
+          ├── src/llm/anthropic.ts
+          <span style="color: var(--fg-dim)"># streaming JSON chapter + decisions call</span><br />
+          ├── src/db/migrate.ts
+          <span style="color: var(--fg-dim)"># numbered SQL migrations, applied on serve</span
+          ><br />
+          ├── web/index.html <span style="color: var(--fg-dim)"># Concept 01, parameterised</span
+          ><br />
+          ├── migrations/001_initial.sql <span style="color: var(--fg-dim)"># 10-table schema</span
+          ><br />
+          └── tests/<br />
+          &nbsp;&nbsp;&nbsp;&nbsp;├── hunks.test.ts
+          <span style="color: var(--fg-dim)"># hash + revision diff suite</span><br />
+          &nbsp;&nbsp;&nbsp;&nbsp;└── chunk-merge.test.ts
+          <span style="color: var(--fg-dim)"># chunked LLM merge invariant</span><br />
+          <br />
+          &lt;consuming repo&gt;<br />
+          └── .reviewdev/<br />
+          &nbsp;&nbsp;&nbsp;&nbsp;├── db.sqlite
+          <span style="color: var(--fg-dim)"># one DB per repo, WAL mode</span><br />
+          &nbsp;&nbsp;&nbsp;&nbsp;└── port
+          <span style="color: var(--fg-dim)"># chosen port from 7891–7899</span><br />
+          <br />
+          ~/.claude/<br />
+          ├── projects/&lt;slug&gt;/*.jsonl
+          <span style="color: var(--fg-dim)"># transcripts read by publish</span><br />
+          └── skills/review-dev/SKILL.md
+          <span style="color: var(--fg-dim)"># installed by bun postinstall</span>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <span>review.dev · system architecture · Draft 4 · May 2026</span>
+        <span>Companion to <code>SPEC.md</code> · <code>.claude/specs/review-dev-mvp/</code></span>
+      </footer>
+    </main>
+  </body>
+</html>
