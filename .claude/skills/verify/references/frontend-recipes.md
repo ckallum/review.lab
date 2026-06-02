@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@dfaf5b4
+_origin: calsuite@b196ace
 ---
 
 # Frontend verification recipes
@@ -61,7 +61,10 @@ agent-browser --session verify screenshot "${VERIFY_DIR}/screenshots/after-signu
 
 # 7. Look for errors — hard errors fail the verify; warnings are surfaced but non-blocking
 #    (see "Console error handling" below for why warnings alone don't fail).
-agent-browser --session verify snapshot | grep -i -E '(error|exception|failed)'
+#    A grep MATCH means errors are present, so it must FAIL the run — invert with -q + exit.
+if agent-browser --session verify snapshot | grep -qi -E '(error|exception|failed)'; then
+  echo "✗ console errors detected — verify failed"; exit 1
+fi
 agent-browser --session verify snapshot | grep -i 'warning' || true
 ```
 

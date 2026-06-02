@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@dfaf5b4
+_origin: calsuite@b196ace
 name: review
 version: 1.1.0
 description: |
@@ -610,7 +610,7 @@ description: "Cross-module format consistency"
 
 **Agent I — Spec-contract deviation (signal-gated: `$SPEC_DIR` non-empty):**
 
-Only dispatch if `$SPEC_DIR` is non-empty (branch slug matches a directory under `.claude/specs/` OR a spec with both `design.md` and `tasks.md` is found). If `$SPEC_DIR` is empty, skip this agent.
+Only dispatch if `$SPEC_DIR` is non-empty — i.e. the branch name, with standard feature-branch prefixes (`feat/`, `fix/`, `chore/`, `refactor/`, `feature/`) stripped, matches a spec directory under `.claude/specs/` **exactly**. There is no fallback to "first spec under `.claude/specs/`"; for issue-driven branches (e.g. `claude/<task>`) that would grab an unrelated spec and review against the wrong contract. If there's no exact match, `$SPEC_DIR` stays empty and this agent is skipped.
 
 ```text
 prompt: "Check the diff for deviations from the spec contract.

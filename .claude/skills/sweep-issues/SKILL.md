@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@2a7c883
+_origin: calsuite@b196ace
 name: sweep-issues
 version: 1.0.0
 description: |
@@ -83,7 +83,11 @@ If a prior rejection is *related but not the same scope*, surface it to the user
 # Skip the check entirely if not on a feature branch with real divergence
 branch=$(git branch --show-current 2>/dev/null)
 if [ -n "$branch" ] && [ "$branch" != "main" ] && [ "$branch" != "master" ]; then
-  changed_files=$(git diff origin/main --name-only 2>/dev/null)
+  # Resolve the repo's default branch instead of assuming origin/main — repos
+  # whose default is master (or anything else) would otherwise diff against a
+  # nonexistent ref and silently no-op this guard.
+  base=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null || echo origin/main)
+  changed_files=$(git diff "$base" --name-only 2>/dev/null)
 fi
 ```
 
@@ -91,7 +95,7 @@ If `$changed_files` is non-empty, for every candidate categorized as `bug`:
 
 1. Match the candidate against the diff. A candidate is **PR-touched** if any of:
    - Its description references a file path in `$changed_files` (literal or basename match)
-   - Its description references a symbol (function, type, constant) that appears in `git diff origin/main` as an added or modified line
+   - Its description references a symbol (function, type, constant) that appears in `git diff "$base"` (the default-branch diff resolved above) as an added or modified line
 2. If PR-touched, use AskUserQuestion individually:
    ```text
    This bug looks like it lives in code this PR is changing:
@@ -161,13 +165,17 @@ EOF
 - `AFK` → `afk` label
 - `HITL` → `hitl` label
 
-If the labels don't already exist on the repo, create them once. **Gate the create call** — `gh label create` errors on existing labels without `--force`, and `--force` would overwrite color/description on every run. Use:
+If the labels don't already exist on the repo, create them once. This covers **both** the mode labels (`afk`/`hitl`) and the custom category labels (`tech-debt`/`infrastructure`) — `gh issue create --label tech-debt` fails outright if the label is missing, which would silently drop the issue. (`enhancement` and `bug` ship as defaults on every GitHub repo, so they don't need bootstrapping.) **Gate each create call** — `gh label create` errors on existing labels without `--force`, and `--force` would overwrite color/description on every run. Use:
 
 ```bash
 gh label list --json name -q '.[].name' | grep -qx afk \
   || gh label create afk --color 0E8A16 --description "Agent can complete unattended"
 gh label list --json name -q '.[].name' | grep -qx hitl \
   || gh label create hitl --color FBCA04 --description "Needs human in the loop"
+gh label list --json name -q '.[].name' | grep -qx tech-debt \
+  || gh label create tech-debt --color D4C5F9 --description "Technical debt"
+gh label list --json name -q '.[].name' | grep -qx infrastructure \
+  || gh label create infrastructure --color C5DEF5 --description "Infrastructure / tooling"
 ``` The labels let `/execute --multi issue:...` filter for AFK-only work safe to fan out across panes, and let `/babysit-pr` flag HITL items that need user attention.
 
 ### Step 5: Report
