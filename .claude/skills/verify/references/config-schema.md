@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@dfaf5b4
+_origin: calsuite@b196ace
 ---
 
 # `.claude/verify-config.json` schema
@@ -162,7 +162,7 @@ If the project has fixtures already loaded by `docker compose`, omit this.
 
 ### `evidenceDir`
 
-Where to save screenshots, log excerpts, DB query results. Defaults to `.context/verify/` (which `/ship` knows to link from PR bodies).
+Where to save screenshots, log excerpts, DB query results. Defaults to `.context/verify/`. `/ship` does not yet auto-pick-up this evidence — until that integration lands you paste the `summary.md` path into the PR body yourself (see `verify/SKILL.md`).
 
 ## Examples
 

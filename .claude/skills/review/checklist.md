@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@2a7c883
+_origin: calsuite@b196ace
 ---
 
 # Pre-Landing Review Checklist
@@ -33,6 +33,16 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 ---
 
 ## Review Categories
+
+### Cross-cutting patterns
+
+Most of the citation-rich Pass 1 and Pass 2 bullets below are instances of three abstract shapes. Carry the principle into the scan so you can flag new instances the checklist doesn't yet list.
+
+- **A — State surface sync.** Any logical state with two or more surfaces (in-memory + DB, source doc + parsed store, prop + live store, event payload + frontend listener, write path + read path) must have every transition touch all surfaces. A one-sided change ships green. Instances below: *Stale in-memory state after DB write* (Race Conditions), *Conditional Side Effects* (status set on one branch only), *Aggregation Source Consistency* (totals derived from different sources with different filtering), *Derive-during-render must also sync state* (React 19 State Patterns), and the *Serialize/deserialize symmetry* check in the versioned-struct pass.
+- **B — Defensive-default trap.** Substituting an empty / default / `Ok(None)` for an error signal turns "something went wrong" into "nothing happened" — indistinguishable to callers, and the next write destroys the evidence. Instances below: the swallowed-error, catch-all-without-context, and empty-`catch {}` bullets under *Error Handling*; *Error state vs empty state* and *Feature flags inferred from API failure* under *React Async Patterns*; and the sentinel-value bullet under *Aggregation Source Consistency*.
+- **C — Stale-reference class.** After a structural change (renamed type, new enum variant, dropped param, changed contract, deleted column), every reference to the old shape must grep to zero — including comments, specs, tests, and blame-anchored claims. Instances below: the stale-comment and "all X converted" bullets under *Dead Code & Consistency*, the error-string-as-query-filter bullet under *Magic Numbers & String Coupling*, *Sibling Helper Drift*, and *Test Mock Staleness*.
+
+Not unified here: the ordering / atomicity family (TOCTOU re-reads under *SQL & Data Safety*, atomic conditional updates under *Race Conditions & Concurrency*) is a sibling concern. Same goal as A — consistency across surfaces — but the mechanism is sequencing and rollback, not symmetric writes. Treat the concrete bullets as load-bearing rather than rolling them up.
 
 ### Pass 1 — CRITICAL
 
