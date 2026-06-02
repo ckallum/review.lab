@@ -58,9 +58,14 @@ export function openDb(dbPath: string): Database {
 /**
  * List every numbered migration file in `dir`, sorted by version.
  * Files that don't match the `NNN_<slug>.sql` pattern are skipped silently.
+ *
+ * Throws a diagnostic error if two files share the same numeric version
+ * (e.g. `001_a.sql` + `001_b.sql`). Without this guard the second file's
+ * `INSERT INTO meta` would later fail with a raw `UNIQUE constraint failed:
+ * meta.version` that names the meta table — not the two colliding files.
  */
 export function listMigrations(dir: string): Migration[] {
-  return readdirSync(dir)
+  const sorted = readdirSync(dir)
     .map((filename) => {
       const match = filename.match(MIGRATION_FILENAME);
       if (!match) return null;
@@ -72,6 +77,20 @@ export function listMigrations(dir: string): Migration[] {
     })
     .filter((m): m is Migration => m !== null)
     .sort((a, b) => a.version - b.version);
+
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i]!.version === sorted[i - 1]!.version) {
+      // Sort the two filenames so the diagnostic doesn't depend on the
+      // readdir order (which is filesystem-dependent).
+      const [a, b] = [sorted[i - 1]!.filename, sorted[i]!.filename].sort();
+      throw new Error(
+        `migrate: duplicate migration version ${sorted[i]!.version} ` +
+          `in '${a}' and '${b}' (dir: ${dir})`,
+      );
+    }
+  }
+
+  return sorted;
 }
 
 /**

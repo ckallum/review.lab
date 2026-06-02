@@ -60,6 +60,13 @@ One SQLite DB per repo at `<repo-root>/.reviewdev/db.sqlite`. Path is gitignored
 - `revisions(pull_id, number)` (unique)
 - `usage(day)`
 
+### Writer invariants
+
+These invariants live in app code; SQLite alone can't enforce them.
+
+- **`chapter_hunks → hunks` joins must go through `chapters.revision_id`.** Hunks are keyed `(id, revision_id)` but `chapter_hunks` stores only `hunk_id`, so the natural `chapter_hunks JOIN hunks ON hunks.id = chapter_hunks.hunk_id` is ambiguous when the same content-hash recurs across revisions. Disambiguate via `JOIN chapters ON chapters.id = chapter_hunks.chapter_id AND chapters.revision_id = hunks.revision_id`. Adding the composite FK at the SQL level would require denormalising `revision_id` into `chapter_hunks` — chosen against because `chapter_id` already carries the revision.
+- **Denormalised `pull_id` / `revision_id` columns must be derived from the owning row, not the request payload.** `hunks.pull_id`, `chapters.pull_id`, `comments.pull_id`, `approvals.pull_id`, `approvals.chapter_id`'s `revision_id` are denormalisations that enable index-backed queries. SQLite validates each FK independently and can't enforce "the hunk's revision belongs to the same pull." T1.5+ writers must look up the owning revision/chapter inside the same transaction and set the denormalised columns from there.
+
 ### Hunk identity
 
 `SHA-256(file_path + "\n" + literal hunk content)`. Order-sensitive. Two purposes:

@@ -49,6 +49,14 @@ describe('listMigrations', () => {
       '02_missing_pad.sql',
     ]);
   });
+
+  it('throws a diagnostic when two files share the same version', () => {
+    writeFileSync(join(dir, '001_initial.sql'), '');
+    writeFileSync(join(dir, '001_dup.sql'), '');
+    expect(() => listMigrations(dir)).toThrow(
+      /duplicate migration version 1 in '001_dup\.sql' and '001_initial\.sql'/,
+    );
+  });
 });
 
 describe('applyMigrations against the real 001_initial.sql', () => {
@@ -162,6 +170,40 @@ describe('applyMigrations against the real 001_initial.sql', () => {
       .query<{ c: number }, []>(`SELECT COUNT(*) AS c FROM hunks WHERE id = 'hash-abc'`)
       .get()!.c;
     expect(count).toBe(2);
+  });
+
+  it('enforces enum CHECK on pulls.status and comments.target_kind', () => {
+    applyMigrations(db, defaultMigrationsDir());
+
+    expect(() =>
+      db.run('INSERT INTO pulls (branch, base, status) VALUES (?, ?, ?)', [
+        'feat/z',
+        'main',
+        'bogus',
+      ]),
+    ).toThrow(/CHECK constraint failed/);
+
+    db.run('INSERT INTO pulls (branch, base) VALUES (?, ?)', ['feat/zz', 'main']);
+    const pull = db.query<{ id: number }, []>('SELECT id FROM pulls').get()!;
+    db.run(
+      'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
+      [pull.id, 1, 'h', 'b', 'd'],
+    );
+    const rev = db.query<{ id: number }, []>('SELECT id FROM revisions').get()!;
+    expect(() =>
+      db.run(
+        'INSERT INTO comments (revision_id, pull_id, target_kind, target_id, body) VALUES (?, ?, ?, ?, ?)',
+        [rev.id, pull.id, 'invalid', 'x', 'body'],
+      ),
+    ).toThrow(/CHECK constraint failed/);
+  });
+
+  it('writes timestamps in ISO 8601 form with T separator and Z suffix', () => {
+    applyMigrations(db, defaultMigrationsDir());
+    db.run('INSERT INTO pulls (branch, base) VALUES (?, ?)', ['feat/ts', 'main']);
+    const row = db.query<{ created_at: string }, []>('SELECT created_at FROM pulls').get()!;
+    // strftime('%Y-%m-%dT%H:%M:%fZ', 'now') emits e.g. 2026-06-01T07:30:42.123Z
+    expect(row.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
   });
 
   it('rejects a duplicate (pull_id, number) revision', () => {

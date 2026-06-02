@@ -9,8 +9,15 @@
 --
 -- Conventions for this and future migration files:
 --   - Forward-only. No DROPs of existing data tables.
---   - Timestamps are TEXT in ISO 8601 (datetime('now')).
+--   - Timestamps are TEXT in ISO 8601 with `T` separator and `Z` suffix.
+--     SQL defaults use `strftime('%Y-%m-%dT%H:%M:%fZ','now')` so they match
+--     what JavaScript's `Date.toISOString()` writes from `migrate.ts` and
+--     T1.4 publish code. Plain `datetime('now')` would emit `YYYY-MM-DD HH:MM:SS`
+--     (space, no `Z`) which mis-sorts under `ORDER BY` against the TS form.
 --   - Booleans are INTEGER (0 / 1) with a CHECK constraint to the {0,1} set.
+--   - String enums with known sets carry a CHECK constraint; columns whose
+--     vocabulary is still in flux (`hunks.kind`, `sessions.kind`,
+--     `hunks.confidence`) are left open until the spec wording settles.
 --   - Foreign keys are declared explicitly; `migrate.ts` enables them
 --     via `PRAGMA foreign_keys = ON` on every connection.
 --   - "order" is reserved in SQL — quoted everywhere it appears as a
@@ -25,9 +32,9 @@ CREATE TABLE pulls (
   base TEXT NOT NULL,
   title TEXT,
   github_url TEXT,
-  status TEXT NOT NULL DEFAULT 'open',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'merged', 'closed')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 -- ---------------------------------------------------------------------
@@ -58,7 +65,7 @@ CREATE TABLE revisions (
   git_head_sha TEXT NOT NULL,
   git_base_sha TEXT NOT NULL,
   diff_hash TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   UNIQUE (pull_id, number)
 );
 
@@ -143,10 +150,10 @@ CREATE TABLE comments (
   id INTEGER PRIMARY KEY,
   revision_id INTEGER NOT NULL REFERENCES revisions(id) ON DELETE CASCADE,
   pull_id INTEGER NOT NULL REFERENCES pulls(id) ON DELETE CASCADE,
-  target_kind TEXT NOT NULL,
+  target_kind TEXT NOT NULL CHECK (target_kind IN ('hunk', 'chapter', 'pr')),
   target_id TEXT NOT NULL,
   body TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE INDEX comments_revision_target ON comments(revision_id, target_kind, target_id);
@@ -159,7 +166,7 @@ CREATE TABLE approvals (
   revision_id INTEGER NOT NULL REFERENCES revisions(id) ON DELETE CASCADE,
   pull_id INTEGER NOT NULL REFERENCES pulls(id) ON DELETE CASCADE,
   chapter_id INTEGER NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
-  approved_at TEXT NOT NULL DEFAULT (datetime('now')),
+  approved_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   note TEXT
 );
 
