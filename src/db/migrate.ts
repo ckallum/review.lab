@@ -6,16 +6,11 @@ import { fileURLToPath } from 'node:url';
 /**
  * Migration system for the per-repo SQLite database.
  *
- * Conventions (matches `.claude/specs/review-dev-mvp/design.md`):
- *   - Files at `migrations/NNN_<slug>.sql` apply forward-only in numeric order.
- *   - The `meta` table records which versions have been applied.
- *   - Each file runs inside a single `db.transaction(...).immediate(...)`
- *     so a partially-applied migration rolls back cleanly.
- *   - `openDb` always sets `journal_mode = WAL` and `foreign_keys = ON`.
- *
  * The `meta` table lives here (not in 001_initial.sql) because it's part
  * of the migration *system*, not the data model. Numbered migrations may
  * not assume the meta table exists; `applyMigrations` creates it first.
+ *
+ * See `.claude/specs/review-dev-mvp/design.md` for the data-model contract.
  */
 
 export type Migration = {
@@ -30,11 +25,14 @@ export type AppliedMigration = {
   applied_at: string;
 };
 
+// `applied_at` is set by SQL DEFAULT so the timestamp matches the format
+// every other column in 001_initial.sql writes (T separator, milliseconds,
+// `Z` suffix — see the file header in 001_initial.sql for the rationale).
 const META_TABLE_DDL = `
   CREATE TABLE IF NOT EXISTS meta (
     version INTEGER PRIMARY KEY,
     filename TEXT NOT NULL,
-    applied_at TEXT NOT NULL
+    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   )
 `;
 
@@ -50,8 +48,7 @@ const MIGRATION_FILENAME = /^(\d+)_[A-Za-z0-9_-]+\.sql$/;
  */
 export function openDb(dbPath: string): Database {
   const db = new Database(dbPath, { create: true });
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA foreign_keys = ON');
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   return db;
 }
 
@@ -79,15 +76,15 @@ export function listMigrations(dir: string): Migration[] {
     .sort((a, b) => a.version - b.version);
 
   for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i]!.version === sorted[i - 1]!.version) {
-      // Sort the two filenames so the diagnostic doesn't depend on the
-      // readdir order (which is filesystem-dependent).
-      const [a, b] = [sorted[i - 1]!.filename, sorted[i]!.filename].sort();
-      throw new Error(
-        `migrate: duplicate migration version ${sorted[i]!.version} ` +
-          `in '${a}' and '${b}' (dir: ${dir})`,
-      );
-    }
+    const prev = sorted[i - 1]!;
+    const curr = sorted[i]!;
+    if (curr.version !== prev.version) continue;
+    // Sort the two filenames so the diagnostic doesn't depend on the
+    // readdir order (which is filesystem-dependent).
+    const [a, b] = [prev.filename, curr.filename].sort();
+    throw new Error(
+      `migrate: duplicate migration version ${curr.version} in '${a}' and '${b}' (dir: ${dir})`,
+    );
   }
 
   return sorted;
@@ -100,7 +97,9 @@ export function listMigrations(dir: string): Migration[] {
  *
  * Each migration runs inside its own `db.transaction(...).immediate(...)`.
  * If one fails midway, the transaction rolls back and the error propagates.
- * Earlier migrations stay applied.
+ * Earlier migrations stay applied. The file is read from disk *before*
+ * `BEGIN IMMEDIATE` so the write lock is held only for the actual exec +
+ * meta insert, not the I/O.
  */
 export function applyMigrations(db: Database, dir: string): AppliedMigration[] {
   db.exec(META_TABLE_DDL);
@@ -116,23 +115,22 @@ export function applyMigrations(db: Database, dir: string): AppliedMigration[] {
 
   // `db.transaction(...).immediate(...)` is bun:sqlite's built-in helper:
   // it wraps the body in `BEGIN IMMEDIATE` / `COMMIT`, and rolls back +
-  // rethrows on any throw inside. Replaces a manual try/catch.
-  const applyOne = db.transaction((migration: Migration, appliedAt: string) => {
-    db.exec(readFileSync(migration.path, 'utf8'));
-    db.run('INSERT INTO meta (version, filename, applied_at) VALUES (?, ?, ?)', [
-      migration.version,
-      migration.filename,
-      appliedAt,
-    ]);
+  // rethrows on any throw inside.
+  const applyOne = db.transaction((migration: Migration, sql: string): AppliedMigration => {
+    db.exec(sql);
+    const row = db
+      .query<
+        { applied_at: string },
+        [number, string]
+      >('INSERT INTO meta (version, filename) VALUES (?, ?) RETURNING applied_at')
+      .get(migration.version, migration.filename)!;
+    return { version: migration.version, filename: migration.filename, applied_at: row.applied_at };
   });
 
   for (const migration of listMigrations(dir)) {
     if (applied.has(migration.version)) continue;
-
-    const appliedAt = new Date().toISOString();
-    applyOne.immediate(migration, appliedAt);
-
-    ran.push({ version: migration.version, filename: migration.filename, applied_at: appliedAt });
+    const sql = readFileSync(migration.path, 'utf8');
+    ran.push(applyOne.immediate(migration, sql));
   }
 
   return ran;

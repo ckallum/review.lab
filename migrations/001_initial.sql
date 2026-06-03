@@ -45,7 +45,7 @@ CREATE TABLE sessions (
   id TEXT PRIMARY KEY,
   pull_id INTEGER NOT NULL REFERENCES pulls(id) ON DELETE CASCADE,
   agent TEXT NOT NULL,
-  kind TEXT NOT NULL,
+  kind TEXT NOT NULL, -- enum: vocabulary unsettled (see header); tracked at #9
   transcript_path TEXT,
   cwd TEXT,
   started_at TEXT,
@@ -77,15 +77,15 @@ CREATE TABLE revisions (
 CREATE TABLE hunks (
   id TEXT NOT NULL,
   revision_id INTEGER NOT NULL REFERENCES revisions(id) ON DELETE CASCADE,
-  pull_id INTEGER NOT NULL REFERENCES pulls(id) ON DELETE CASCADE,
+  pull_id INTEGER NOT NULL REFERENCES pulls(id) ON DELETE CASCADE, -- denormalised; see design.md § Writer invariants
   file_path TEXT NOT NULL,
   start_line INTEGER NOT NULL,
   end_line INTEGER NOT NULL,
   content TEXT NOT NULL,
-  kind TEXT NOT NULL,
+  kind TEXT NOT NULL, -- enum: vocabulary unsettled (see header); tracked at #9
   session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
   agent TEXT,
-  confidence TEXT NOT NULL DEFAULT 'high',
+  confidence TEXT NOT NULL DEFAULT 'high', -- v1 high-only; widens at P1.7
   generated INTEGER NOT NULL DEFAULT 0 CHECK (generated IN (0, 1)),
   PRIMARY KEY (id, revision_id)
 );
@@ -117,7 +117,8 @@ CREATE INDEX chapters_revision_id ON chapters(revision_id);
 -- The FK to hunks is omitted at the SQLite level: hunks' PK is composite
 -- and adding revision_id here for the composite FK would duplicate data
 -- that chapter_id already carries. Application code enforces the
--- "hunk belongs to the chapter's revision" invariant.
+-- "hunk belongs to the chapter's revision" invariant — joins must go
+-- through `chapters.revision_id`. See design.md § Writer invariants.
 -- ---------------------------------------------------------------------
 CREATE TABLE chapter_hunks (
   chapter_id INTEGER NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
@@ -126,7 +127,8 @@ CREATE TABLE chapter_hunks (
   PRIMARY KEY (chapter_id, hunk_id)
 );
 
-CREATE INDEX chapter_hunks_chapter_id ON chapter_hunks(chapter_id);
+-- chapter_id alone needs no separate index: the composite PK above already
+-- backs `WHERE chapter_id = ?` queries via leading-column prefix scan.
 CREATE INDEX chapter_hunks_hunk_id ON chapter_hunks(hunk_id);
 
 -- ---------------------------------------------------------------------

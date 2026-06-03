@@ -21,6 +21,21 @@ function columns(db: Database, table: string): string[] {
     .map((r) => r.name);
 }
 
+function seedPullAndRevision(db: Database, branch = 'feat/x'): { pullId: number; revId: number } {
+  db.run('INSERT INTO pulls (branch, base) VALUES (?, ?)', [branch, 'main']);
+  const { id: pullId } = db
+    .query<{ id: number }, [string]>('SELECT id FROM pulls WHERE branch = ?')
+    .get(branch)!;
+  db.run(
+    'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
+    [pullId, 1, 'h', 'b', 'd'],
+  );
+  const { id: revId } = db
+    .query<{ id: number }, [number]>('SELECT id FROM revisions WHERE pull_id = ?')
+    .get(pullId)!;
+  return { pullId, revId };
+}
+
 describe('listMigrations', () => {
   let dir: string;
 
@@ -143,28 +158,27 @@ describe('applyMigrations against the real 001_initial.sql', () => {
   it('lets the same hunk content-hash live in multiple revisions (composite PK)', () => {
     applyMigrations(db, defaultMigrationsDir());
 
-    db.run('INSERT INTO pulls (branch, base) VALUES (?, ?)', ['feat/x', 'main']);
-    const pull = db.query<{ id: number }, []>('SELECT id FROM pulls').get()!;
-
+    const { pullId, revId: rev1 } = seedPullAndRevision(db);
     db.run(
       'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
-      [pull.id, 1, 'h1', 'b1', 'd1'],
+      [pullId, 2, 'h2', 'b2', 'd2'],
     );
-    db.run(
-      'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
-      [pull.id, 2, 'h2', 'b2', 'd2'],
-    );
-    const revs = db.query<{ id: number }, []>('SELECT id FROM revisions ORDER BY number').all();
+    const { id: rev2 } = db
+      .query<
+        { id: number },
+        [number, number]
+      >('SELECT id FROM revisions WHERE pull_id = ? AND number = ?')
+      .get(pullId, 2)!;
 
-    const insertHunk = (revId: number) =>
+    const insertHunk = (revisionId: number) =>
       db.run(
         `INSERT INTO hunks (id, revision_id, pull_id, file_path, start_line, end_line, content, kind)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        ['hash-abc', revId, pull.id, 'src/foo.ts', 10, 12, '+x;', 'add'],
+        ['hash-abc', revisionId, pullId, 'src/foo.ts', 10, 12, '+x;', 'add'],
       );
 
-    expect(() => insertHunk(revs[0]!.id)).not.toThrow();
-    expect(() => insertHunk(revs[1]!.id)).not.toThrow();
+    expect(() => insertHunk(rev1)).not.toThrow();
+    expect(() => insertHunk(rev2)).not.toThrow();
 
     const count = db
       .query<{ c: number }, []>(`SELECT COUNT(*) AS c FROM hunks WHERE id = 'hash-abc'`)
@@ -183,17 +197,11 @@ describe('applyMigrations against the real 001_initial.sql', () => {
       ]),
     ).toThrow(/CHECK constraint failed/);
 
-    db.run('INSERT INTO pulls (branch, base) VALUES (?, ?)', ['feat/zz', 'main']);
-    const pull = db.query<{ id: number }, []>('SELECT id FROM pulls').get()!;
-    db.run(
-      'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
-      [pull.id, 1, 'h', 'b', 'd'],
-    );
-    const rev = db.query<{ id: number }, []>('SELECT id FROM revisions').get()!;
+    const { pullId, revId } = seedPullAndRevision(db, 'feat/zz');
     expect(() =>
       db.run(
         'INSERT INTO comments (revision_id, pull_id, target_kind, target_id, body) VALUES (?, ?, ?, ?, ?)',
-        [rev.id, pull.id, 'invalid', 'x', 'body'],
+        [revId, pullId, 'invalid', 'x', 'body'],
       ),
     ).toThrow(/CHECK constraint failed/);
   });
@@ -208,16 +216,11 @@ describe('applyMigrations against the real 001_initial.sql', () => {
 
   it('rejects a duplicate (pull_id, number) revision', () => {
     applyMigrations(db, defaultMigrationsDir());
-    db.run('INSERT INTO pulls (branch, base) VALUES (?, ?)', ['feat/y', 'main']);
-    const pull = db.query<{ id: number }, []>('SELECT id FROM pulls').get()!;
-    db.run(
-      'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
-      [pull.id, 1, 'h', 'b', 'd'],
-    );
+    const { pullId } = seedPullAndRevision(db, 'feat/y');
     expect(() =>
       db.run(
         'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
-        [pull.id, 1, 'h2', 'b2', 'd2'],
+        [pullId, 1, 'h2', 'b2', 'd2'],
       ),
     ).toThrow(/UNIQUE constraint failed/);
   });

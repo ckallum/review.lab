@@ -4,7 +4,7 @@ Local PR review surface for agent-authored code. Spec is the contract: [SPEC.md]
 
 ## Stack
 
-Bun (≥ 1.3) runtime. Hono server. SQLite via `bun:sqlite`. Vitest for tests. Prettier for formatting. No Node, no npm in the runtime path — `bun install`, `bun run`, `bun test`-equivalent via Vitest.
+Bun (≥ 1.3) runtime. Hono server. SQLite via `bun:sqlite`. Vitest for tests, invoked via `bun --bun vitest` so workers stay inside Bun's runtime and can resolve `bun:sqlite` (don't drop the `--bun` flag in `package.json` scripts). Prettier for formatting. No Node, no npm in the runtime path — `bun install`, `bun run`.
 
 ## Conventions
 
