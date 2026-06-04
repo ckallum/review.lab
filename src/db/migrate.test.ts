@@ -14,7 +14,16 @@ function tables(db: Database): string[] {
     .map((r) => r.name);
 }
 
+// PRAGMA arguments can't be bound parameters in SQLite, so the table name
+// has to be interpolated. Every current caller passes a hard-coded literal,
+// but reject anything that isn't a plain SQL identifier so future callers
+// can't accidentally pass user-derived input through the helper.
+const SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 function columns(db: Database, table: string): string[] {
+  if (!SQL_IDENTIFIER.test(table)) {
+    throw new Error(`columns: invalid table identifier '${table}'`);
+  }
   return db
     .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
     .all()
