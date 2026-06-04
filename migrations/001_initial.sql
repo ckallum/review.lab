@@ -166,10 +166,14 @@ CREATE INDEX comments_revision_target ON comments(revision_id, target_kind, targ
 CREATE TABLE approvals (
   id INTEGER PRIMARY KEY,
   revision_id INTEGER NOT NULL REFERENCES revisions(id) ON DELETE CASCADE,
-  pull_id INTEGER NOT NULL REFERENCES pulls(id) ON DELETE CASCADE,
+  pull_id INTEGER NOT NULL REFERENCES pulls(id) ON DELETE CASCADE, -- denormalised; see design.md § Writer invariants
   chapter_id INTEGER NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
   approved_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  note TEXT
+  note TEXT,
+  -- One signoff per chapter per revision: rejects double-click / retry storms
+  -- writing duplicate approval rows. T1.5+ approve handler can rely on this
+  -- instead of a TOCTOU "already approved?" pre-check.
+  UNIQUE (revision_id, chapter_id)
 );
 
 -- ---------------------------------------------------------------------

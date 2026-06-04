@@ -224,6 +224,32 @@ describe('applyMigrations against the real 001_initial.sql', () => {
       ),
     ).toThrow(/UNIQUE constraint failed/);
   });
+
+  it('rejects a duplicate approval on the same (revision_id, chapter_id)', () => {
+    applyMigrations(db, defaultMigrationsDir());
+    const { pullId, revId } = seedPullAndRevision(db, 'feat/approve');
+
+    db.run(
+      `INSERT INTO chapters (revision_id, pull_id, marker, title, "order") VALUES (?, ?, ?, ?, ?)`,
+      [revId, pullId, '§ 01', 'Why', 1],
+    );
+    const { id: chapterId } = db
+      .query<{ id: number }, [number]>('SELECT id FROM chapters WHERE revision_id = ?')
+      .get(revId)!;
+
+    db.run('INSERT INTO approvals (revision_id, pull_id, chapter_id) VALUES (?, ?, ?)', [
+      revId,
+      pullId,
+      chapterId,
+    ]);
+    expect(() =>
+      db.run('INSERT INTO approvals (revision_id, pull_id, chapter_id) VALUES (?, ?, ?)', [
+        revId,
+        pullId,
+        chapterId,
+      ]),
+    ).toThrow(/UNIQUE constraint failed/);
+  });
 });
 
 describe('applyMigrations against a synthetic migrations dir', () => {
