@@ -34,6 +34,8 @@ CREATE TABLE pulls (
   github_url TEXT,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'merged', 'closed')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  -- DEFAULT fires only at insert; writers must bump on every update (no SQLite
+  -- ON UPDATE). See design.md § Writer invariants.
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 

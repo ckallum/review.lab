@@ -39,6 +39,19 @@ const META_TABLE_DDL = `
 // Matches "001_initial.sql", "042_add_foo.sql" etc. Captures the version.
 const MIGRATION_FILENAME = /^(\d+)_[A-Za-z0-9_-]+\.sql$/;
 
+// Strips SQL line (`-- ...`) and block (`/* ... */`) comments so a
+// comment-only or empty migration can be recognised as a no-op.
+const SQL_COMMENT = /--[^\n]*|\/\*[\s\S]*?\*\//g;
+
+// bun:sqlite's `db.exec` throws on a string with no executable statement
+// ("SQL string mustn't be blank" / "Query contained no valid SQL statement").
+// A migration file that is empty or comment-only is a legitimate no-op
+// (placeholder, squash artifact); `applyMigrations` records it in `meta`
+// and skips the exec rather than crashing the run on every start.
+function hasExecutableSql(sql: string): boolean {
+  return sql.replace(SQL_COMMENT, '').trim().length > 0;
+}
+
 /**
  * Open the per-repo SQLite database. Creates the file if missing, sets
  * WAL mode for concurrent reads alongside the publish-writer, and turns
@@ -117,7 +130,7 @@ export function applyMigrations(db: Database, dir: string): AppliedMigration[] {
   // it wraps the body in `BEGIN IMMEDIATE` / `COMMIT`, and rolls back +
   // rethrows on any throw inside.
   const applyOne = db.transaction((migration: Migration, sql: string): AppliedMigration => {
-    db.exec(sql);
+    if (hasExecutableSql(sql)) db.exec(sql);
     const row = db
       .query<
         { applied_at: string },

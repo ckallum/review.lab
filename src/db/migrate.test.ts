@@ -31,17 +31,15 @@ function columns(db: Database, table: string): string[] {
 }
 
 function seedPullAndRevision(db: Database, branch = 'feat/x'): { pullId: number; revId: number } {
-  db.run('INSERT INTO pulls (branch, base) VALUES (?, ?)', [branch, 'main']);
-  const { id: pullId } = db
-    .query<{ id: number }, [string]>('SELECT id FROM pulls WHERE branch = ?')
-    .get(branch)!;
-  db.run(
-    'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
-    [pullId, 1, 'h', 'b', 'd'],
+  const pullId = Number(
+    db.run('INSERT INTO pulls (branch, base) VALUES (?, ?)', [branch, 'main']).lastInsertRowid,
   );
-  const { id: revId } = db
-    .query<{ id: number }, [number]>('SELECT id FROM revisions WHERE pull_id = ?')
-    .get(pullId)!;
+  const revId = Number(
+    db.run(
+      'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
+      [pullId, 1, 'h', 'b', 'd'],
+    ).lastInsertRowid,
+  );
   return { pullId, revId };
 }
 
@@ -168,16 +166,12 @@ describe('applyMigrations against the real 001_initial.sql', () => {
     applyMigrations(db, defaultMigrationsDir());
 
     const { pullId, revId: rev1 } = seedPullAndRevision(db);
-    db.run(
-      'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
-      [pullId, 2, 'h2', 'b2', 'd2'],
+    const rev2 = Number(
+      db.run(
+        'INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash) VALUES (?, ?, ?, ?, ?)',
+        [pullId, 2, 'h2', 'b2', 'd2'],
+      ).lastInsertRowid,
     );
-    const { id: rev2 } = db
-      .query<
-        { id: number },
-        [number, number]
-      >('SELECT id FROM revisions WHERE pull_id = ? AND number = ?')
-      .get(pullId, 2)!;
 
     const insertHunk = (revisionId: number) =>
       db.run(
@@ -238,13 +232,12 @@ describe('applyMigrations against the real 001_initial.sql', () => {
     applyMigrations(db, defaultMigrationsDir());
     const { pullId, revId } = seedPullAndRevision(db, 'feat/approve');
 
-    db.run(
-      `INSERT INTO chapters (revision_id, pull_id, marker, title, "order") VALUES (?, ?, ?, ?, ?)`,
-      [revId, pullId, '§ 01', 'Why', 1],
+    const chapterId = Number(
+      db.run(
+        `INSERT INTO chapters (revision_id, pull_id, marker, title, "order") VALUES (?, ?, ?, ?, ?)`,
+        [revId, pullId, '§ 01', 'Why', 1],
+      ).lastInsertRowid,
     );
-    const { id: chapterId } = db
-      .query<{ id: number }, [number]>('SELECT id FROM chapters WHERE revision_id = ?')
-      .get(revId)!;
 
     db.run('INSERT INTO approvals (revision_id, pull_id, chapter_id) VALUES (?, ?, ?)', [
       revId,
@@ -298,5 +291,26 @@ describe('applyMigrations against a synthetic migrations dir', () => {
       .all();
     expect(recorded).toEqual([{ version: 1 }]);
     expect(tables(db)).toEqual(['meta', 'ok']);
+  });
+
+  it('records empty or comment-only migrations as no-ops without crashing', () => {
+    writeFileSync(join(dir, '001_a.sql'), 'CREATE TABLE a (x INTEGER)');
+    writeFileSync(join(dir, '002_empty.sql'), '');
+    writeFileSync(join(dir, '003_comment_only.sql'), '-- placeholder; squashed away\n');
+    writeFileSync(join(dir, '004_d.sql'), 'CREATE TABLE d (x INTEGER)');
+
+    // The no-op files are recorded in meta but create no tables, and the
+    // run continues past them instead of aborting on db.exec('').
+    expect(applyMigrations(db, dir).map((m) => m.version)).toEqual([1, 2, 3, 4]);
+    expect(tables(db)).toEqual(['a', 'd', 'meta']);
+
+    // Idempotent: the no-ops are remembered, so a re-run applies nothing.
+    expect(applyMigrations(db, dir)).toEqual([]);
+  });
+
+  it('throws when the migrations directory does not exist', () => {
+    // A missing dir (e.g. a packaging bug in defaultMigrationsDir) must
+    // surface an error, not silently report "nothing to apply".
+    expect(() => applyMigrations(db, join(dir, 'does-not-exist'))).toThrow();
   });
 });
