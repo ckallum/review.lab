@@ -4,7 +4,7 @@ Local PR review surface for agent-authored code. Spec is the contract: [SPEC.md]
 
 ## Stack
 
-Bun (≥ 1.3) runtime. Hono server. SQLite via `bun:sqlite`. Vitest for tests. Prettier for formatting. No Node, no npm in the runtime path — `bun install`, `bun run`, `bun test`-equivalent via Vitest.
+Bun (≥ 1.3) runtime. Hono server. SQLite via `bun:sqlite`. Vitest for tests, invoked via `bun --bun vitest` so workers stay inside Bun's runtime and can resolve `bun:sqlite` (don't drop the `--bun` flag in `package.json` scripts). Prettier for formatting. No Node, no npm in the runtime path — `bun install`, `bun run`.
 
 ## Conventions
 
@@ -21,6 +21,8 @@ If a routing test would break when a co-located implementation lands real code, 
 
 ### Spec is the contract — surface drift, don't silently rebuild
 SPEC.md, requirements.md, design.md, and tasks.md must agree. When you find them in tension during build, either propose a spec update (Draft N+1) or fix the code to match the spec. tasks.md T1.1 wording was sharpened against design.md in PR #4 Round 1 — the two had drifted on whether `serve` / `publish` are subcommands of one binary or two separate binaries (they're subcommands). The fix path is *spec follows ground truth* once design.md is the more rigorous statement; never silently let the code diverge from the contract.
+
+**Habit:** before touching one spec doc, grep the other three for any token, number, or symbol this change names. Five seconds; catches almost all surface drift. T1.2 hit two more instances: tasks.md's "9 tables" vs design.md's 10-row grid, and `hunks.kind` / `sessions.kind` enum vocabulary drifting across design.md prose ("added/removed"), FR-P0.4 (`del`), and T3.6 (`Execute` / `Review` / `Ship`). Sharpen the spec in the same PR the code change touches — don't ship a half-aligned contract.
 
 ### Update side state before drafting claims about it
 The `/ship` claim-vs-diff grep catches missing identifiers in the diff. It does *not* catch claims like "tasks.md updated" or "T1.1 checkbox flipped" — those need the action to happen *before* the body is drafted. Order: write the change → commit → then write the PR body that references it.
