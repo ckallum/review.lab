@@ -108,12 +108,17 @@ function logLine(io: Io, event: string, fields: Record<string, unknown>): void {
 }
 
 export const runServe: CommandHandler = async (_args, io) => {
+  // Every startup failure path exits the same way: message to stderr, exit 1.
+  const fail = (err: unknown): number => {
+    io.stderr.write(`${(err as Error).message}\n`);
+    return 1;
+  };
+
   let repoRoot: string;
   try {
     repoRoot = resolveRepoRoot(process.cwd());
   } catch (err) {
-    io.stderr.write(`${(err as Error).message}\n`);
-    return 1;
+    return fail(err);
   }
 
   const reviewDevDir = join(repoRoot, '.reviewdev');
@@ -123,8 +128,7 @@ export const runServe: CommandHandler = async (_args, io) => {
     mkdirSync(reviewDevDir, { recursive: true });
     db = openDb(join(reviewDevDir, 'db.sqlite'));
   } catch (err) {
-    io.stderr.write(`${(err as Error).message}\n`);
-    return 1;
+    return fail(err);
   }
 
   // Forward-only migrations on serve start (design.md § Data Model). A failure
@@ -136,9 +140,8 @@ export const runServe: CommandHandler = async (_args, io) => {
     version = schemaVersion(db);
     logLine(io, 'migrations.applied', { count: ran.length, schema_version: version });
   } catch (err) {
-    io.stderr.write(`${(err as Error).message}\n`);
     db.close();
-    return 1;
+    return fail(err);
   }
 
   let boundPort = 0;
@@ -148,9 +151,8 @@ export const runServe: CommandHandler = async (_args, io) => {
   try {
     server = listenInRange((req) => app.fetch(req), bunServe);
   } catch (err) {
-    io.stderr.write(`${(err as Error).message}\n`);
     db.close();
-    return 1;
+    return fail(err);
   }
   boundPort = server.port;
 
