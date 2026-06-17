@@ -28,12 +28,21 @@ export function resolveRepoRoot(cwd: string): string {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], {
       cwd,
       encoding: 'utf8',
-      // Swallow git's own "fatal: not a git repository" on stderr — we raise
-      // our own message below.
-      stdio: ['ignore', 'pipe', 'ignore'],
+      // Capture git's stderr (don't inherit) so its "fatal: …" line feeds the
+      // diagnostic below instead of leaking to the console.
+      stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
-  } catch {
-    throw new Error(`reviewdev serve: ${cwd} is not inside a git repository`);
+  } catch (err) {
+    if ((err as { code?: string }).code === 'ENOENT') {
+      throw new Error('reviewdev serve: git not found on PATH', { cause: err });
+    }
+    // git ran but exited non-zero — not a repo, or e.g. "dubious ownership"
+    // (common in worktrees/containers). Surface git's own reason.
+    const stderr = String((err as { stderr?: Buffer | string }).stderr ?? '').trim();
+    throw new Error(
+      `reviewdev serve: ${cwd} is not inside a git repository${stderr ? ` (${stderr})` : ''}`,
+      { cause: err },
+    );
   }
 }
 
@@ -64,10 +73,13 @@ export function createApp(deps: { getPort: () => number; schemaVersion: number }
 // `listenInRange` swallows to try the next port. Anything else (permission,
 // bad hostname) propagates immediately rather than being misread as "busy".
 function isAddrInUse(err: unknown): boolean {
-  const code = (err as { code?: string } | null)?.code;
-  if (code === 'EADDRINUSE') return true;
+  // `code` is the reliable signal — Bun and Node both set EADDRINUSE on a
+  // port-in-use bind. The message check is only a narrow fallback for errors
+  // that carry no code; kept tight (no generic "failed to start server") so an
+  // unrelated bind failure isn't misread as busy and silently probed past.
+  if ((err as { code?: string } | null)?.code === 'EADDRINUSE') return true;
   const msg = err instanceof Error ? err.message : String(err);
-  return /eaddrinuse|address already in use|is in use|failed to start server/i.test(msg);
+  return /eaddrinuse|address already in use/i.test(msg);
 }
 
 /**
@@ -88,9 +100,28 @@ export function listenInRange(
       lastErr = err;
     }
   }
-  throw new Error(`reviewdev serve: no free port in ${range.start}-${range.end}`, {
-    cause: lastErr,
-  });
+  throw new Error(
+    `reviewdev serve: no free port in ${range.start}-${range.end}, set REVIEWDEV_PORT`,
+    { cause: lastErr },
+  );
+}
+
+/**
+ * Resolve the port range to probe. `REVIEWDEV_PORT`, when set, pins serve to a
+ * single explicit port (the escape hatch named in the all-ports-busy error and
+ * SPEC.md § failure modes); otherwise the default 7891–7899 range is probed.
+ * Throws on a non-port value so a typo fails fast rather than silently falling
+ * back to the default range.
+ */
+export function portRangeFromEnv(value: string | undefined): { start: number; end: number } {
+  if (value === undefined || value.trim() === '') return PORT_RANGE;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `reviewdev serve: REVIEWDEV_PORT must be a port number between 1 and 65535, got '${value}'`,
+    );
+  }
+  return { start: port, end: port };
 }
 
 // Real listener. Binds to localhost only — single-user, no auth surface
@@ -108,11 +139,25 @@ function logLine(io: Io, event: string, fields: Record<string, unknown>): void {
 }
 
 export const runServe: CommandHandler = async (_args, io) => {
-  // Every startup failure path exits the same way: message to stderr, exit 1.
+  // Every startup failure path exits the same way: message (plus any underlying
+  // cause) to stderr, exit 1. Handles non-Error throws without printing
+  // "undefined" and surfaces the `cause` chain that listenInRange attaches.
   const fail = (err: unknown): number => {
-    io.stderr.write(`${(err as Error).message}\n`);
+    const msg = err instanceof Error ? err.message : String(err);
+    const cause =
+      err instanceof Error && err.cause !== undefined
+        ? `: ${err.cause instanceof Error ? err.cause.message : String(err.cause)}`
+        : '';
+    io.stderr.write(`${msg}${cause}\n`);
     return 1;
   };
+
+  let range: { start: number; end: number };
+  try {
+    range = portRangeFromEnv(process.env.REVIEWDEV_PORT);
+  } catch (err) {
+    return fail(err);
+  }
 
   let repoRoot: string;
   try {
@@ -149,23 +194,33 @@ export const runServe: CommandHandler = async (_args, io) => {
 
   let server: RunningServer;
   try {
-    server = listenInRange((req) => app.fetch(req), bunServe);
+    server = listenInRange((req) => app.fetch(req), bunServe, range);
   } catch (err) {
     db.close();
     return fail(err);
   }
   boundPort = server.port;
 
-  writeFileSync(join(reviewDevDir, 'port'), String(boundPort));
-  logLine(io, 'serve.listening', {
-    port: boundPort,
-    repo_root: repoRoot,
-    schema_version: version,
-  });
+  // Writing the port file is a named T1.3 deliverable (publish reads it), so a
+  // failure here aborts startup through the same contract — release the socket
+  // and DB handle rather than leaking them via an unhandled rejection.
+  try {
+    writeFileSync(join(reviewDevDir, 'port'), String(boundPort));
+    logLine(io, 'serve.listening', {
+      port: boundPort,
+      repo_root: repoRoot,
+      schema_version: version,
+    });
+  } catch (err) {
+    server.stop();
+    db.close();
+    return fail(err);
+  }
 
   // Foreground process: stay up until interrupted, then stop cleanly so the
-  // socket and DB handle are released. The port file is left as the last known
-  // port — publish tolerates a stale file by re-probing.
+  // socket and DB handle are released. The port file records the bound port;
+  // `publish` reads it, confirms the server via GET /health, and errors out if
+  // it's unreachable (SPEC.md § "no server for <repo>").
   return await new Promise<number>((resolve) => {
     const shutdown = () => {
       logLine(io, 'serve.shutdown', { port: boundPort });

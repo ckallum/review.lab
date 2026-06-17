@@ -129,7 +129,7 @@ data: { "message": "…", "code": "rate_limit | over_cap | …" }
 | Streaming | SSE | Chapters render as they arrive; time-to-URL stays sub-2s. |
 | Confidence v1 | All hunks `high` | Heuristic was on cut-list. Schema column exists for week 2 if dogfood reveals the gap. |
 | Diff source | `git diff $(merge-base HEAD origin/<base>)..HEAD` after fetch | Auto-detect base from `refs/remotes/origin/HEAD`. Merges from base don't appear as authored changes. |
-| Server lifecycle | Foreground, ports 7891–7899 probed | No daemon; user runs `reviewdev serve` per repo (typically in tmux or launchd). |
+| Server lifecycle | Foreground, ports 7891–7899 probed; `REVIEWDEV_PORT` pins a single explicit port | No daemon; user runs `reviewdev serve` per repo (typically in tmux or launchd). `REVIEWDEV_PORT` is the escape hatch when the default range is exhausted. |
 | Concurrency | No supersedes; both publishes get their own revision | Immutable-revisions makes concurrency trivially safe. |
 | Cost guardrails | `usage` table; $5 soft warning; `REVIEWDEV_DAILY_CAP` hard cap | One env, one warning, one row per call. No third-party billing service. |
 | API key | `ANTHROPIC_API_KEY` only | No config file, no first-run prompt. Missing key falls back to file-based chapters. |
