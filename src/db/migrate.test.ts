@@ -3,7 +3,14 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
-import { applyMigrations, defaultMigrationsDir, listMigrations, openDb } from './migrate.ts';
+import {
+  applyMigrations,
+  currentVersion,
+  defaultMigrationsDir,
+  latestMigrationVersion,
+  listMigrations,
+  openDb,
+} from './migrate.ts';
 
 function tables(db: Database): string[] {
   return db
@@ -312,5 +319,42 @@ describe('applyMigrations against a synthetic migrations dir', () => {
     // A missing dir (e.g. a packaging bug in defaultMigrationsDir) must
     // surface an error, not silently report "nothing to apply".
     expect(() => applyMigrations(db, join(dir, 'does-not-exist'))).toThrow();
+  });
+});
+
+describe('currentVersion', () => {
+  let db: Database;
+
+  beforeEach(() => {
+    db = openDb(':memory:');
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('is 0 before any migration runs', () => {
+    db.exec('CREATE TABLE meta (version INTEGER PRIMARY KEY, filename TEXT, applied_at TEXT)');
+    expect(currentVersion(db)).toBe(0);
+  });
+
+  it('reports the highest applied migration version', () => {
+    applyMigrations(db, defaultMigrationsDir());
+    expect(currentVersion(db)).toBe(1);
+  });
+});
+
+describe('latestMigrationVersion', () => {
+  it('returns the highest bundled migration version', () => {
+    expect(latestMigrationVersion(defaultMigrationsDir())).toBe(1);
+  });
+
+  it('is 0 for a directory with no migrations', () => {
+    const empty = mkdtempSync(join(tmpdir(), 'reviewdev-empty-mig-'));
+    try {
+      expect(latestMigrationVersion(empty)).toBe(0);
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
   });
 });

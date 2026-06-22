@@ -84,6 +84,7 @@ All endpoints served by `reviewdev serve` on the per-repo port. JSON for data en
 
 | Method | Path | Purpose |
 |---|---|---|
+| `GET` | `/health` | Liveness probe (T1.3). Returns `{ok: true, port, schema_version}` — `publish` uses it to confirm the server is up and on a compatible schema. |
 | `GET` | `/pulls` | Index page — list open PRs (status, branch, title, updated_at, latest_revision_number). |
 | `GET` | `/pr/:id` | Redirects to `/pr/:id/rev/<latest>`. |
 | `GET` | `/pr/:id/rev/:n` | Pinned revision view (HTML, demo Concept 01). |
@@ -128,7 +129,7 @@ data: { "message": "…", "code": "rate_limit | over_cap | …" }
 | Streaming | SSE | Chapters render as they arrive; time-to-URL stays sub-2s. |
 | Confidence v1 | All hunks `high` | Heuristic was on cut-list. Schema column exists for week 2 if dogfood reveals the gap. |
 | Diff source | `git diff $(merge-base HEAD origin/<base>)..HEAD` after fetch | Auto-detect base from `refs/remotes/origin/HEAD`. Merges from base don't appear as authored changes. |
-| Server lifecycle | Foreground, ports 7891–7899 probed | No daemon; user runs `reviewdev serve` per repo (typically in tmux or launchd). |
+| Server lifecycle | Foreground, ports 7891–7899 probed; `REVIEWDEV_PORT` pins a single explicit port | No daemon; user runs `reviewdev serve` per repo (typically in tmux or launchd). `REVIEWDEV_PORT` is the escape hatch when the default range is exhausted. |
 | Concurrency | No supersedes; both publishes get their own revision | Immutable-revisions makes concurrency trivially safe. |
 | Cost guardrails | `usage` table; $5 soft warning; `REVIEWDEV_DAILY_CAP` hard cap | One env, one warning, one row per call. No third-party billing service. |
 | API key | `ANTHROPIC_API_KEY` only | No config file, no first-run prompt. Missing key falls back to file-based chapters. |
@@ -139,7 +140,7 @@ data: { "message": "…", "code": "rate_limit | over_cap | …" }
 
 ## Security Considerations
 
-- **Single user, localhost only.** No auth surface. The server binds to `localhost` (not `0.0.0.0`).
+- **Single user, localhost only.** No auth surface. The server binds `127.0.0.1` (not `0.0.0.0`) — specifically the IPv4 address rather than the `localhost` hostname, which resolves to both `127.0.0.1` and `::1` and would let two serve processes split across address families and defeat the port probe.
 - **No telemetry.** `usage` table is local-only.
 - **API key in env, never persisted.** `ANTHROPIC_API_KEY` never written to disk by reviewdev.
 - **`gh` output trust.** `gh pr view --json url` output is interpolated into HTML as a link; treat as untrusted and URL-encode. Realistically the user controls the GitHub remote, so the threat surface is small.

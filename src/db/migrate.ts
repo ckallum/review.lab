@@ -160,3 +160,24 @@ export function applyMigrations(db: Database, dir: string): AppliedMigration[] {
 export function defaultMigrationsDir(): string {
   return join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'migrations');
 }
+
+/**
+ * Highest applied migration version recorded in `meta`, or 0 before any
+ * migration has run. Owned here alongside the rest of the `meta`-table contract
+ * (callers shouldn't hand-write `SELECT MAX(version)`); `serve` surfaces it via
+ * `/health`.
+ */
+export function currentVersion(db: Database): number {
+  const row = db.query<{ v: number | null }, []>('SELECT MAX(version) AS v FROM meta').get();
+  return row?.v ?? 0;
+}
+
+/**
+ * Highest migration version bundled on disk in `dir` (0 if none). Compared
+ * against `currentVersion` to detect a DB migrated by a newer binary than the
+ * one bundling these files.
+ */
+export function latestMigrationVersion(dir: string): number {
+  const all = listMigrations(dir);
+  return all.length ? all[all.length - 1]!.version : 0;
+}
