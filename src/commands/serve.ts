@@ -10,6 +10,10 @@ import { applyMigrations, defaultMigrationsDir, openDb } from '../db/migrate.ts'
 // user runs `reviewdev serve` per repo." One repo per port keeps routing trivial.
 export const PORT_RANGE = { start: 7891, end: 7899 } as const;
 
+// An inclusive span of ports to probe. `PORT_RANGE` (a const literal) satisfies
+// it, and `portRangeFromEnv` narrows it to a single port for `REVIEWDEV_PORT`.
+export type PortRange = { start: number; end: number };
+
 type FetchHandler = (req: Request) => Response | Promise<Response>;
 
 // The slice of Bun's server object this module depends on. Narrowing it to an
@@ -89,7 +93,7 @@ function isAddrInUse(err: unknown): boolean {
 export function listenInRange(
   fetch: FetchHandler,
   serve: ServeFn,
-  range: { start: number; end: number } = PORT_RANGE,
+  range: PortRange = PORT_RANGE,
 ): RunningServer {
   let lastErr: unknown;
   for (let port = range.start; port <= range.end; port++) {
@@ -113,7 +117,7 @@ export function listenInRange(
  * Throws on a non-port value so a typo fails fast rather than silently falling
  * back to the default range.
  */
-export function portRangeFromEnv(value: string | undefined): { start: number; end: number } {
+export function portRangeFromEnv(value: string | undefined): PortRange {
   if (value === undefined || value.trim() === '') return PORT_RANGE;
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -152,7 +156,7 @@ export const runServe: CommandHandler = async (_args, io) => {
     return 1;
   };
 
-  let range: { start: number; end: number };
+  let range: PortRange;
   try {
     range = portRangeFromEnv(process.env.REVIEWDEV_PORT);
   } catch (err) {
@@ -222,7 +226,12 @@ export const runServe: CommandHandler = async (_args, io) => {
   // `publish` reads it, confirms the server via GET /health, and errors out if
   // it's unreachable (SPEC.md § "no server for <repo>").
   return await new Promise<number>((resolve) => {
+    // Idempotent: if both SIGINT and SIGTERM arrive during teardown, only the
+    // first runs server.stop() / db.close() — the rest are no-ops.
+    let shuttingDown = false;
     const shutdown = () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
       logLine(io, 'serve.shutdown', { port: boundPort });
       server.stop();
       db.close();
