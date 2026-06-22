@@ -208,7 +208,8 @@ describe('reviewdev serve (subprocess)', () => {
     expect(port).toBeGreaterThanOrEqual(PORT_RANGE.start);
     expect(port).toBeLessThanOrEqual(PORT_RANGE.end);
 
-    const res = await fetch(`http://localhost:${port}/health`);
+    // 127.0.0.1, not localhost — serve pins the IPv4 family (see bunServe).
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, port, schema_version: 1 });
 
@@ -219,6 +220,44 @@ describe('reviewdev serve (subprocess)', () => {
     child.kill('SIGINT');
     const code = await new Promise<number | null>((r) => child!.once('exit', (c) => r(c)));
     expect(code).toBe(0);
+  });
+
+  it('skips a port already held by another process and advances past it', async () => {
+    // Regression test: 'localhost' resolves to both 127.0.0.1 and ::1, so a
+    // serve binding the hostname could grab a different family of an occupied
+    // port and never advance. Hold the range-start on 127.0.0.1 (the family
+    // serve pins) and assert serve probes past it instead of colliding.
+    const squatter = Bun.serve({
+      port: PORT_RANGE.start,
+      hostname: '127.0.0.1',
+      fetch: () => new Response('squatter'),
+    });
+    try {
+      child = spawn('bun', [cliPath, 'serve'], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stderr = '';
+      child.stderr!.on('data', (b) => (stderr += b));
+
+      const portFile = join(dir, '.reviewdev', 'port');
+      await waitFor(
+        () => existsSync(portFile),
+        8000,
+        () => `port file never appeared. stderr: ${stderr}`,
+      );
+
+      const port = Number(readFileSync(portFile, 'utf8').trim());
+      expect(port).toBeGreaterThan(PORT_RANGE.start); // advanced past the squatter
+      expect(port).toBeLessThanOrEqual(PORT_RANGE.end);
+
+      // serve answers on its own port; the squatter still owns the range-start.
+      expect(await (await fetch(`http://127.0.0.1:${port}/health`)).json()).toEqual({
+        ok: true,
+        port,
+        schema_version: 1,
+      });
+      expect(await (await fetch(`http://127.0.0.1:${PORT_RANGE.start}/`)).text()).toBe('squatter');
+    } finally {
+      squatter.stop(true);
+    }
   });
 
   it('exits 1 with a diagnostic when cwd is not a git repository', async () => {

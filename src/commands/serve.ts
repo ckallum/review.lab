@@ -128,10 +128,16 @@ export function portRangeFromEnv(value: string | undefined): PortRange {
   return { start: port, end: port };
 }
 
-// Real listener. Binds to localhost only — single-user, no auth surface
+// Real listener. Binds 127.0.0.1 — single-user, no auth surface
 // (design.md § Security Considerations).
+//
+// 127.0.0.1, NOT the hostname 'localhost': 'localhost' resolves to both
+// 127.0.0.1 and ::1, so two serve processes can each bind a different family of
+// the same port without a conflict — which silently defeats the port probe (a
+// client hitting localhost:PORT then lands on either server nondeterministically).
+// Pinning one family makes a taken port throw EADDRINUSE so the probe advances.
 const bunServe: ServeFn = (port, fetch) => {
-  const server = Bun.serve({ port, hostname: 'localhost', fetch });
+  const server = Bun.serve({ port, hostname: '127.0.0.1', fetch });
   // `server.port` is typed `number | undefined` (undefined only for unix-socket
   // servers); we always bind a TCP port, so it equals the requested `port`.
   return { port: server.port ?? port, stop: () => server.stop(true) };

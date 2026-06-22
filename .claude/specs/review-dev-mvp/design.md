@@ -140,7 +140,7 @@ data: { "message": "…", "code": "rate_limit | over_cap | …" }
 
 ## Security Considerations
 
-- **Single user, localhost only.** No auth surface. The server binds to `localhost` (not `0.0.0.0`).
+- **Single user, localhost only.** No auth surface. The server binds `127.0.0.1` (not `0.0.0.0`) — specifically the IPv4 address rather than the `localhost` hostname, which resolves to both `127.0.0.1` and `::1` and would let two serve processes split across address families and defeat the port probe.
 - **No telemetry.** `usage` table is local-only.
 - **API key in env, never persisted.** `ANTHROPIC_API_KEY` never written to disk by reviewdev.
 - **`gh` output trust.** `gh pr view --json url` output is interpolated into HTML as a link; treat as untrusted and URL-encode. Realistically the user controls the GitHub remote, so the threat surface is small.
