@@ -4,17 +4,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn } from 'node:child_process';
-import type { Database } from 'bun:sqlite';
 import { applyMigrations, defaultMigrationsDir, openDb } from '../db/migrate.ts';
-import {
-  PORT_RANGE,
-  createApp,
-  listenInRange,
-  portRangeFromEnv,
-  resolveRepoRoot,
-  schemaVersion,
-  type ServeFn,
-} from './serve.ts';
+import { dbPath, ensureReviewDevDir } from '../repo.ts';
+import { PORT_RANGE, createApp, listenInRange, portRangeFromEnv, type ServeFn } from './serve.ts';
 
 const noopFetch = () => new Response('ok');
 
@@ -30,28 +22,6 @@ function fakeServe(busy: Set<number>): ServeFn {
     return { port, stop: () => {} };
   };
 }
-
-describe('schemaVersion', () => {
-  let db: Database;
-
-  beforeEach(() => {
-    db = openDb(':memory:');
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  it('is 0 before any migration runs', () => {
-    db.exec('CREATE TABLE meta (version INTEGER PRIMARY KEY, filename TEXT, applied_at TEXT)');
-    expect(schemaVersion(db)).toBe(0);
-  });
-
-  it('reports the highest applied migration version', () => {
-    applyMigrations(db, defaultMigrationsDir());
-    expect(schemaVersion(db)).toBe(1);
-  });
-});
 
 describe('createApp — GET /health', () => {
   it('returns ok, the live port, and schema_version', async () => {
@@ -149,27 +119,8 @@ describe('portRangeFromEnv', () => {
   });
 });
 
-describe('resolveRepoRoot', () => {
-  let dir: string;
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'reviewdev-serve-root-'));
-  });
-
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('returns the work-tree root of a git repo', () => {
-    execFileSync('git', ['init', '-q'], { cwd: dir });
-    expect(resolveRepoRoot(dir)).toBe(realpathSync(dir));
-  });
-
-  it('throws when cwd is not inside a git repository', () => {
-    // mkdtemp dirs live under the OS temp root, which is not a git work tree.
-    expect(() => resolveRepoRoot(dir)).toThrow(/not inside a git repository/);
-  });
-});
+// resolveRepoRoot + the .reviewdev path/port helpers now live in ../repo.ts and
+// are covered in src/repo.test.ts.
 
 // End-to-end: spawn the real `reviewdev serve` in a throwaway git repo and
 // prove it boots foreground, applies migrations, writes the port file, and
@@ -275,6 +226,24 @@ describe('reviewdev serve (subprocess)', () => {
     } finally {
       rmSync(nonRepo, { recursive: true, force: true });
     }
+  });
+
+  it('refuses to start when the DB schema is newer than the bundled migrations', async () => {
+    // Seed a DB whose meta claims a version ahead of what this binary bundles —
+    // as if migrated by a newer reviewdev. serve must refuse, not advertise a
+    // schema it can't serve.
+    ensureReviewDevDir(dir);
+    const seed = openDb(dbPath(dir));
+    applyMigrations(seed, defaultMigrationsDir());
+    seed.run('INSERT INTO meta (version, filename) VALUES (?, ?)', [999, '999_future.sql']);
+    seed.close();
+
+    const proc = spawn('bun', [cliPath, 'serve'], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    proc.stderr!.on('data', (b) => (stderr += b));
+    const code = await new Promise<number | null>((r) => proc.once('exit', (c) => r(c)));
+    expect(code).toBe(1);
+    expect(stderr).toMatch(/newer than this reviewdev/);
   });
 });
 

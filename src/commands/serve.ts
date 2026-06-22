@@ -1,10 +1,15 @@
 import { Hono } from 'hono';
 import type { Database } from 'bun:sqlite';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import type { CommandHandler, Io } from '../cli.ts';
-import { applyMigrations, defaultMigrationsDir, openDb } from '../db/migrate.ts';
+import type { CommandHandler } from '../cli.ts';
+import {
+  applyMigrations,
+  currentVersion,
+  defaultMigrationsDir,
+  latestMigrationVersion,
+  openDb,
+} from '../db/migrate.ts';
+import { dbPath, ensureReviewDevDir, resolveRepoRoot, writePortFile } from '../repo.ts';
+import { logLine } from '../log.ts';
 
 // Ports probed on startup, in order. design.md § Server lifecycle: "No daemon;
 // user runs `reviewdev serve` per repo." One repo per port keeps routing trivial.
@@ -21,44 +26,6 @@ type FetchHandler = (req: Request) => Response | Promise<Response>;
 // instead of binding real sockets.
 export type RunningServer = { port: number; stop: () => void };
 export type ServeFn = (port: number, fetch: FetchHandler) => RunningServer;
-
-/**
- * Resolve the enclosing git repository root for `cwd`. `reviewdev serve` is
- * cwd-rooted: the SQLite DB and port file live under `<repo-root>/.reviewdev/`
- * (design.md § Architecture). Throws if `cwd` isn't inside a git work tree.
- */
-export function resolveRepoRoot(cwd: string): string {
-  try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd,
-      encoding: 'utf8',
-      // Capture git's stderr (don't inherit) so its "fatal: …" line feeds the
-      // diagnostic below instead of leaking to the console.
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-  } catch (err) {
-    if ((err as { code?: string }).code === 'ENOENT') {
-      throw new Error('reviewdev serve: git not found on PATH', { cause: err });
-    }
-    // git ran but exited non-zero — not a repo, or e.g. "dubious ownership"
-    // (common in worktrees/containers). Surface git's own reason.
-    const stderr = String((err as { stderr?: Buffer | string }).stderr ?? '').trim();
-    throw new Error(
-      `reviewdev serve: ${cwd} is not inside a git repository${stderr ? ` (${stderr})` : ''}`,
-      { cause: err },
-    );
-  }
-}
-
-/**
- * Current schema version = the highest applied migration recorded in `meta`,
- * or 0 before any migration has run. Surfaced by `/health` so `publish` can
- * detect a server running an older schema.
- */
-export function schemaVersion(db: Database): number {
-  const row = db.query<{ v: number | null }, []>('SELECT MAX(version) AS v FROM meta').get();
-  return row?.v ?? 0;
-}
 
 /**
  * Build the Hono app. `getPort` is read at request time, not bound here,
@@ -143,11 +110,6 @@ const bunServe: ServeFn = (port, fetch) => {
   return { port: server.port ?? port, stop: () => server.stop(true) };
 };
 
-// One JSON object per line to stdout — structured logs, greppable, no deps.
-function logLine(io: Io, event: string, fields: Record<string, unknown>): void {
-  io.stdout.write(`${JSON.stringify({ ts: new Date().toISOString(), event, ...fields })}\n`);
-}
-
 export const runServe: CommandHandler = async (_args, io) => {
   // Every startup failure path exits the same way: message (plus any underlying
   // cause) to stderr, exit 1. Handles non-Error throws without printing
@@ -176,12 +138,10 @@ export const runServe: CommandHandler = async (_args, io) => {
     return fail(err);
   }
 
-  const reviewDevDir = join(repoRoot, '.reviewdev');
-
   let db: Database;
   try {
-    mkdirSync(reviewDevDir, { recursive: true });
-    db = openDb(join(reviewDevDir, 'db.sqlite'));
+    ensureReviewDevDir(repoRoot);
+    db = openDb(dbPath(repoRoot));
   } catch (err) {
     return fail(err);
   }
@@ -192,11 +152,24 @@ export const runServe: CommandHandler = async (_args, io) => {
   let version: number;
   try {
     const ran = applyMigrations(db, defaultMigrationsDir());
-    version = schemaVersion(db);
+    version = currentVersion(db);
     logLine(io, 'migrations.applied', { count: ran.length, schema_version: version });
   } catch (err) {
     db.close();
     return fail(err);
+  }
+
+  // Refuse a DB migrated by a NEWER reviewdev than this binary bundles —
+  // applyMigrations is forward-only, so it can't downgrade, and /health would
+  // otherwise advertise a schema this code can't actually serve.
+  const bundled = latestMigrationVersion(defaultMigrationsDir());
+  if (version > bundled) {
+    db.close();
+    return fail(
+      new Error(
+        `reviewdev serve: database schema v${version} is newer than this reviewdev (bundles v${bundled}); upgrade reviewdev`,
+      ),
+    );
   }
 
   let boundPort = 0;
@@ -215,7 +188,7 @@ export const runServe: CommandHandler = async (_args, io) => {
   // failure here aborts startup through the same contract — release the socket
   // and DB handle rather than leaking them via an unhandled rejection.
   try {
-    writeFileSync(join(reviewDevDir, 'port'), String(boundPort));
+    writePortFile(repoRoot, boundPort);
     logLine(io, 'serve.listening', {
       port: boundPort,
       repo_root: repoRoot,
