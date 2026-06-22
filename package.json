@@ -14,6 +14,7 @@
     "test": "bun --bun vitest run",
     "test:watch": "bun --bun vitest",
     "typecheck": "tsc --noEmit",
+    "roadmap": "bun scripts/gen-roadmap.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
