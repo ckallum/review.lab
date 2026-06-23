@@ -4,14 +4,19 @@
 // Run after ticket states change: `bun run roadmap`.
 //
 // Status is derived, not hand-maintained:
-//   - done    — checkbox ticked in tasks.md, no open PR
-//   - review  — a ticket id (T<phase>.<n>) appears in an open PR title (via gh)
+//   - done    — checkbox ticked in tasks.md
 //   - next    — the first remaining unticked ticket in document order
 //   - todo    — everything else unticked
+//   - review  — opt-in only: set ROADMAP_PR_OVERLAY=1 to mark tickets whose id
+//               (T<phase>.<n>) appears in an open PR title (looked up via gh).
 //
-// The output is deterministic (no timestamps) so re-running with an unchanged
-// tasks.md produces no diff. docs/ is in .prettierignore — this file is the
-// source of truth, not the generated HTML.
+// By default the overlay is OFF so the output is a pure function of tasks.md —
+// deterministic (no timestamps, no live PR state) so re-running on an unchanged
+// tasks.md produces no diff. That determinism is what the roadmap CI check
+// (.github/workflows/roadmap.yml) relies on: it regenerates and fails if the
+// committed docs/roadmap.html drifts. Do NOT commit overlay output (CI would
+// flag it as stale). docs/ is in .prettierignore — this file is the source of
+// truth, not the generated HTML.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -266,7 +271,8 @@ ${body}
 }
 
 const phases = parseTasks(readFileSync(TASKS_PATH, 'utf8'));
-assignStatus(phases, openPrTickets());
+// Overlay is opt-in (see header): default off keeps output deterministic for CI.
+assignStatus(phases, process.env.ROADMAP_PR_OVERLAY === '1' ? openPrTickets() : new Map());
 mkdirSync(dirname(OUT_PATH), { recursive: true });
 writeFileSync(OUT_PATH, render(phases));
 
