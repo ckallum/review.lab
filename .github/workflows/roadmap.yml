@@ -1,0 +1,45 @@
+name: roadmap
+
+# Fails a PR if docs/roadmap.html is stale — i.e. someone changed tasks.md (or
+# the generator) without running `bun run roadmap`. The generator is a pure
+# function of tasks.md by default (the gh PR overlay is opt-in and off here), so
+# "regenerate and diff" is deterministic. Public repo → free GitHub-hosted minutes.
+
+on:
+  pull_request:
+    paths:
+      - '.claude/specs/review-dev-mvp/tasks.md'
+      - 'scripts/gen-roadmap.ts'
+      - 'docs/roadmap.html'
+      - 'package.json'
+      - '.github/workflows/roadmap.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.claude/specs/review-dev-mvp/tasks.md'
+      - 'scripts/gen-roadmap.ts'
+      - 'docs/roadmap.html'
+      - 'package.json'
+      - '.github/workflows/roadmap.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  roadmap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # The generator imports only node: builtins, so no `bun install` needed.
+      - run: bun run roadmap
+      - name: Check docs/roadmap.html is up to date
+        run: |
+          if ! git diff --quiet -- docs/roadmap.html; then
+            echo "::error file=docs/roadmap.html::Roadmap is stale. Run 'bun run roadmap' and commit docs/roadmap.html."
+            git --no-pager diff -- docs/roadmap.html
+            exit 1
+          fi
+          echo "docs/roadmap.html is up to date."
