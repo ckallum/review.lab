@@ -74,13 +74,15 @@ export function resolveDiff(deps: {
   const warn = deps.onWarn ?? (() => {});
   const base = detectBaseBranch(deps.git, () => ghBaseRefName(deps.cwd));
 
-  const fetch = throttledFetch({
+  // Not named `fetch` — that would shadow the global `fetch()` this module uses
+  // in serverHealthy, a footgun for any later edit in this scope.
+  const fetchResult = throttledFetch({
     git: deps.git,
     base,
     markerPath: fetchMarkerPath(deps.repoRoot),
     now: deps.now,
   });
-  if (!fetch.fetched && fetch.reason !== 'throttled') {
+  if (!fetchResult.fetched && fetchResult.reason !== 'throttled') {
     warn('reviewdev: fetch failed, using last-known base');
   }
 
@@ -89,7 +91,7 @@ export function resolveDiff(deps: {
 
   const { headSha, baseSha } = resolveEndpoints(deps.git, base);
   const hunks = parseDiff(diffRange(deps.git, baseSha));
-  return { base, headSha, baseSha, hunks, dirty, fetch };
+  return { base, headSha, baseSha, hunks, dirty, fetch: fetchResult };
 }
 
 /** `--cwd <path>` defaults to the process cwd; `--session <id>` is accepted now
