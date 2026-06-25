@@ -6,6 +6,10 @@ Local PR review surface for agent-authored code. Spec is the contract: [SPEC.md]
 
 Bun (≥ 1.3) runtime. Hono server. SQLite via `bun:sqlite`. Vitest for tests, invoked via `bun --bun vitest` so workers stay inside Bun's runtime and can resolve `bun:sqlite` (don't drop the `--bun` flag in `package.json` scripts). Prettier for formatting. No Node, no npm in the runtime path — `bun install`, `bun run`.
 
+## Source layout
+
+`src/cli.ts` dispatches subcommands to `src/commands/<name>.ts` (each a `CommandHandler`) and owns the shared `fail(io, err)` exit-1 contract. Cross-command building blocks live as flat modules under `src/`: `src/repo.ts` (the `.reviewdev` path/port layout), `src/log.ts` (the `logLine` JSON envelope), `src/db/migrate.ts` (schema + migration runner), `src/diff.ts` (pure unified-diff parser + `hunkId` SHA-256 hashing), and `src/git.ts` (the `GitRunner` seam + git operations: base detection, throttled fetch, merge-base diff). `serve` and `publish` both compose these rather than re-spelling paths or git calls — `publish`'s `resolveDiff` is the reuse surface T1.5 builds on.
+
 ## Conventions
 
 These are the principles surfaced during T1.1 / PR #4. Each one is the abstract version of a real mistake. Read them before scaffolding new tools or writing tests.

@@ -49,6 +49,15 @@ export function portFilePath(repoRoot: string): string {
   return join(reviewDevDir(repoRoot), 'port');
 }
 
+/**
+ * Marker file recording when `publish` last ran `git fetch` for this repo.
+ * Its mtime drives the 60-second fetch throttle (SPEC.md § Diff source) so
+ * back-to-back publishes don't each pay the network round-trip.
+ */
+export function fetchMarkerPath(repoRoot: string): string {
+  return join(reviewDevDir(repoRoot), 'last-fetch');
+}
+
 /** Create `<repo>/.reviewdev/` if missing; returns its path. */
 export function ensureReviewDevDir(repoRoot: string): string {
   const dir = reviewDevDir(repoRoot);
