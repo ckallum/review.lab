@@ -16,8 +16,9 @@
 --     (space, no `Z`) which mis-sorts under `ORDER BY` against the TS form.
 --   - Booleans are INTEGER (0 / 1) with a CHECK constraint to the {0,1} set.
 --   - String enums with known sets carry a CHECK constraint; columns whose
---     vocabulary is still in flux (`hunks.kind`, `sessions.kind`,
---     `hunks.confidence`) are left open until the spec wording settles.
+--     vocabulary is still in flux (`sessions.kind`, `hunks.confidence`) are
+--     left open until the spec wording settles. `hunks.kind` was settled in
+--     T1.4 (add/del/mod — #9) since publish is its first writer.
 --   - Foreign keys are declared explicitly; `migrate.ts` enables them
 --     via `PRAGMA foreign_keys = ON` on every connection.
 --   - "order" is reserved in SQL — quoted everywhere it appears as a
@@ -84,7 +85,7 @@ CREATE TABLE hunks (
   start_line INTEGER NOT NULL,
   end_line INTEGER NOT NULL,
   content TEXT NOT NULL,
-  kind TEXT NOT NULL, -- enum: vocabulary unsettled (see header); tracked at #9
+  kind TEXT NOT NULL CHECK (kind IN ('add', 'del', 'mod')), -- git-diff convention; settled in T1.4 (#9)
   session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
   agent TEXT,
   confidence TEXT NOT NULL DEFAULT 'high', -- v1 high-only; widens at P1.7

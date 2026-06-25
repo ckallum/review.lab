@@ -214,6 +214,15 @@ describe('applyMigrations against the real 001_initial.sql', () => {
         [revId, pullId, 'invalid', 'x', 'body'],
       ),
     ).toThrow(/CHECK constraint failed/);
+
+    // hunks.kind enum settled in T1.4 (#9): add/del/mod only.
+    expect(() =>
+      db.run(
+        `INSERT INTO hunks (id, revision_id, pull_id, file_path, start_line, end_line, content, kind)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['h-bad', revId, pullId, 'src/a.ts', 1, 1, '+x;', 'bogus'],
+      ),
+    ).toThrow(/CHECK constraint failed/);
   });
 
   it('writes timestamps in ISO 8601 form with T separator and Z suffix', () => {
