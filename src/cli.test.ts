@@ -89,15 +89,6 @@ describe('cli dispatcher', () => {
   });
 });
 
-// serve is implemented as of T1.3 — its behaviour is covered in
-// src/commands/serve.test.ts. publish remains a stub until T1.4.
-describe('stub handlers', () => {
-  it('runPublish returns 1 and writes to stderr', async () => {
-    const io = captureIo();
-    const { runPublish } = await import('./commands/publish.ts');
-    const code = await runPublish([], io);
-    expect(code).toBe(1);
-    expect(io.stderr.value).toContain('reviewdev publish: not yet implemented');
-    expect(io.stdout.value).toBe('');
-  });
-});
+// serve and publish are both implemented as of T1.3 / T1.4 — their behaviour is
+// covered in src/commands/serve.test.ts and src/commands/publish.test.ts. This
+// file owns only the dispatch contract (above).

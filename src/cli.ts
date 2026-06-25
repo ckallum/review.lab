@@ -22,6 +22,22 @@ export type Io = {
 
 export type CommandHandler = (args: readonly string[], io: Io) => Promise<number>;
 
+/**
+ * Write an error to stderr and return exit code 1 — the shared failure contract
+ * for command handlers. Handles non-Error throws without printing "undefined"
+ * and appends a one-level `cause` chain (e.g. git's own "fatal: …" stderr that
+ * `repo.ts` attaches). Used by both `serve` and `publish`.
+ */
+export function fail(io: Io, err: unknown): number {
+  const msg = err instanceof Error ? err.message : String(err);
+  const cause =
+    err instanceof Error && err.cause !== undefined
+      ? `: ${err.cause instanceof Error ? err.cause.message : String(err.cause)}`
+      : '';
+  io.stderr.write(`${msg}${cause}\n`);
+  return 1;
+}
+
 // Registered command names. Adding a new one here is a compile-time prompt
 // to also update the HELP string and the COMMANDS map below.
 export type CommandName = 'serve' | 'publish';

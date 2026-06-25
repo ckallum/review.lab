@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Database } from 'bun:sqlite';
-import type { CommandHandler } from '../cli.ts';
+import { fail, type CommandHandler } from '../cli.ts';
 import {
   applyMigrations,
   currentVersion,
@@ -111,31 +111,21 @@ const bunServe: ServeFn = (port, fetch) => {
 };
 
 export const runServe: CommandHandler = async (_args, io) => {
-  // Every startup failure path exits the same way: message (plus any underlying
-  // cause) to stderr, exit 1. Handles non-Error throws without printing
-  // "undefined" and surfaces the `cause` chain that listenInRange attaches.
-  const fail = (err: unknown): number => {
-    const msg = err instanceof Error ? err.message : String(err);
-    const cause =
-      err instanceof Error && err.cause !== undefined
-        ? `: ${err.cause instanceof Error ? err.cause.message : String(err.cause)}`
-        : '';
-    io.stderr.write(`${msg}${cause}\n`);
-    return 1;
-  };
-
+  // Every startup failure path exits the same way via the shared `fail` (stderr
+  // message + cause chain, exit 1) — including the `cause` that listenInRange
+  // attaches and git's "fatal: …" stderr from resolveRepoRoot.
   let range: PortRange;
   try {
     range = portRangeFromEnv(process.env.REVIEWDEV_PORT);
   } catch (err) {
-    return fail(err);
+    return fail(io, err);
   }
 
   let repoRoot: string;
   try {
     repoRoot = resolveRepoRoot(process.cwd());
   } catch (err) {
-    return fail(err);
+    return fail(io, err);
   }
 
   let db: Database;
@@ -143,7 +133,7 @@ export const runServe: CommandHandler = async (_args, io) => {
     ensureReviewDevDir(repoRoot);
     db = openDb(dbPath(repoRoot));
   } catch (err) {
-    return fail(err);
+    return fail(io, err);
   }
 
   // Forward-only migrations on serve start (design.md § Data Model). A failure
@@ -156,7 +146,7 @@ export const runServe: CommandHandler = async (_args, io) => {
     logLine(io, 'migrations.applied', { count: ran.length, schema_version: version });
   } catch (err) {
     db.close();
-    return fail(err);
+    return fail(io, err);
   }
 
   // Refuse a DB migrated by a NEWER reviewdev than this binary bundles —
@@ -166,6 +156,7 @@ export const runServe: CommandHandler = async (_args, io) => {
   if (version > bundled) {
     db.close();
     return fail(
+      io,
       new Error(
         `reviewdev serve: database schema v${version} is newer than this reviewdev (bundles v${bundled}); upgrade reviewdev`,
       ),
@@ -180,7 +171,7 @@ export const runServe: CommandHandler = async (_args, io) => {
     server = listenInRange((req) => app.fetch(req), bunServe, range);
   } catch (err) {
     db.close();
-    return fail(err);
+    return fail(io, err);
   }
   boundPort = server.port;
 
@@ -197,7 +188,7 @@ export const runServe: CommandHandler = async (_args, io) => {
   } catch (err) {
     server.stop();
     db.close();
-    return fail(err);
+    return fail(io, err);
   }
 
   // Foreground process: stay up until interrupted, then stop cleanly so the
