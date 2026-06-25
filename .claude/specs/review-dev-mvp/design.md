@@ -45,7 +45,7 @@ One SQLite DB per repo at `<repo-root>/.reviewdev/db.sqlite`. Path is gitignored
 | `pulls` | `id`, `branch`, `base`, `title`, `github_url`, `status`, `created_at`, `updated_at` | One per branch. |
 | `revisions` | `id`, `pull_id`, `number`, `git_head_sha`, `git_base_sha`, `diff_hash`, `created_at` | Unique on `(pull_id, number)`. `diff_hash` = hash of sorted hunk-id set; used to detect duplicate publishes. |
 | `sessions` | `id`, `pull_id`, `agent`, `kind`, `transcript_path`, `cwd`, `started_at`, `ended_at`, `parent_session_id`, `compacted` | Scoped to PR (not revision) — sessions span revisions. `cwd` for branch correlation. |
-| `hunks` | `id` *(content-hash)*, `revision_id`, `pull_id`, `file_path`, `start_line`, `end_line`, `content`, `kind`, `session_id`, `agent`, `confidence`, `generated` | `id = SHA-256(file_path + "\n" + literal hunk content)`. Same hash can appear in multiple revisions. |
+| `hunks` | `id` *(content-hash)*, `revision_id`, `pull_id`, `file_path`, `start_line`, `end_line`, `content`, `kind`, `session_id`, `agent`, `confidence`, `generated` | `id = SHA-256(file_path + "\n" + literal hunk content)`. Same hash can appear in multiple revisions. `kind ∈ {add, del, mod}` (git-diff convention; settled in T1.4, #9). |
 | `chapters` | `id`, `revision_id`, `pull_id`, `marker`, `title`, `summary`, `order`, `inherited_from_chapter_id` | `inherited_from_chapter_id` points at the prior revision's chapter when the LLM reused it. Drives the diff view's chapter-delta. |
 | `chapter_hunks` | `chapter_id`, `hunk_id`, `order` | Many-to-many within a revision. |
 | `decisions` | `id`, `revision_id`, `session_id`, `ts`, `summary` | Extracted in the same LLM call as chapters. |
@@ -71,7 +71,7 @@ These invariants live in app code; SQLite alone can't enforce them.
 
 ### Hunk identity
 
-`SHA-256(file_path + "\n" + literal hunk content)`. Order-sensitive. Two purposes:
+`SHA-256(file_path + "\n" + literal hunk content)`. Order-sensitive. **"Literal hunk content"** (settled in T1.4) is the hunk body exactly as `git diff` emits it — every line keeps its leading ` `/`+`/`-`/`\` marker, joined by `\n` — with the `@@ -a,b +c,d @@` header line **excluded**. Excluding the header (which carries volatile line numbers) is required by purpose 1 below: an unchanged block that merely shifted position must keep its hash so it reads as "unchanged" across revisions. The line numbers it drops live in the `start_line`/`end_line` columns instead. Two purposes:
 
 1. **Revision diffing.** Hunks in N but not N-1 = added. In N-1 but not N = removed. In both = unchanged.
 2. **Chapter-inheritance hint.** The prompt for revision N is told which prior chapters' hunks all survived, with instructions to reuse titles/groupings.
