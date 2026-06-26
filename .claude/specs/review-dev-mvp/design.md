@@ -135,8 +135,8 @@ data: { "message": "…", "code": "rate_limit | over_cap | …" }
 | API key | `ANTHROPIC_API_KEY` only | No config file, no first-run prompt. Missing key falls back to file-based chapters. |
 | Distribution | `bun install -g reviewdev`; postinstall installs skill non-destructively | One command. No `install-skill --force` subcommand — user runs the manual command if they want to overwrite. |
 | Migrations | Numbered `migrations/NNN_*.sql`, applied on serve start, WAL mode + `BEGIN IMMEDIATE` for writes | Standard forward-only. Personal tool — no rollback path needed. |
-| Tests | Two fixture suites land before week 1 ships (hash+diff, chunk-merge) | The silently-corruptible surfaces dogfood can't catch. |
-| Chunking large diffs | File-boundary split at ~80k tok/chunk; per-chunk chapter candidates; cheap Haiku merge pass for global 3–7 chapters | Files never split across chunks (per-file context preserved). Invariant: every input hunk lands in exactly one chapter. Full spec in [SPEC.md](../../../SPEC.md#chunking-strategy-for-large-diffs). |
+| Tests | One fixture suite lands before week 1 ships (hash+diff) | The silently-corruptible surface dogfood can't catch. Chunk-merge suite deferred to P2 with the chunker (2026-06-26). |
+| Chunking large diffs | **Deferred to P2 (2026-06-26).** MVP hard-errors when a diff exceeds the one-call budget (~150k tokens) instead of chunking. | The boundary sits far above a 50-hunk PR; a single-author month won't hit it. Original file-boundary chunking design preserved in [SPEC.md](../../../SPEC.md#chunking-strategy-for-large-diffs) for P2. |
 
 ## Security Considerations
 

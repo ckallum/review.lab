@@ -22,7 +22,7 @@ The author writes most code with Claude Code. The PRs that come out are large, w
 1. **FR-P0.1 — Claude Code skill.** `/publish-review` shells `reviewdev publish --cwd $(pwd) --session $CLAUDE_SESSION_ID`. `bun install -g reviewdev`'s postinstall lays down `~/.claude/skills/review-dev/SKILL.md`, refusing to overwrite an existing file and printing the manual override command.
 2. **FR-P0.2 — CLI publish.** `reviewdev publish` resolves the diff (fetch + merge-base + auto-detect base), uploads hunks and sessions to the per-repo server, and creates a new revision (or returns the existing URL if `diff_hash` matches latest). URL returned within 2s; chapter render completes within the measured SLA. Standalone mode works without `$CLAUDE_SESSION_ID`.
 3. **FR-P0.3 — Chapter generation + decisions.** Single Anthropic API call (`claude-sonnet-4-7`, overridable via `REVIEWDEV_MODEL`) emits `{chapters: [3-7], decisions: [...]}`. Prompt includes the full diff, the prior revision's chapter titles, and which of its hunks survived by content hash, with instructions to reuse where unchanged. Streams via SSE. Falls back to file-based grouping (no decisions) when `ANTHROPIC_API_KEY` is unset.
-4. **FR-P0.4 — Per-hunk attribution.** `git blame --follow` + commit-trailer parsing (`Co-authored-by`). Trailer beats blame author. Mixed-author hunks → majority-line winner. Generated files (linguist-generated, lockfiles, `*.snap`, `dist/`) tagged `generated` and excluded from chapter prompts. Deleted-only hunks blame the prior commit, render with `kind=del`.
+4. **FR-P0.4 — Per-hunk attribution (reduced for MVP).** Generated files (linguist-generated, lockfiles, `*.snap`, `dist/`) tagged `generated` and excluded from chapter prompts. Deleted-only hunks render with `kind=del`. Every non-generated hunk is labelled `human`. *(Amended 2026-06-26: full provenance — `git blame --follow`, `Co-authored-by` trailer parsing with trailer-beats-blame, mixed-author majority-wins — deferred to P2 / multi-agent Lanes, per T2.6.)*
 5. **FR-P0.5 — Confidence display stub.** All hunks render at `confidence=high` in week 1. UI bands are low/medium/high with red/amber/green. `chapters.confidence` column exists in schema so swapping values later is one line.
 6. **FR-P0.6 — Concept 01 view.** Browser renders the imported demo HTML, landed in the repo at `web/index.html` (Concept 01 only — see [tasks.md](tasks.md) T1.7 for the import note), data-driven from `/api/pr/:id/rev/:n`. Numeric `conf 0.94` swapped for word bands. Concepts 02–06 stripped during import.
 7. **FR-P0.7 — GitHub link out.** If `gh pr view --json url` succeeds, header shows "View on GitHub." If `gh` is missing/unauthed, stderr is swallowed and the branch name is shown instead.
@@ -43,14 +43,16 @@ The author writes most code with Claude Code. The PRs that come out are large, w
 ### P2 — Phase 2 and beyond
 GitHub Action (`reviewdev/action@v1`), hosted review.dev, lanes (Concept 02), behavioral diff (Concept 05), audience switching (Concept 03), replay scrubber (Concept 06), comment export to GitHub, cross-repo dashboard. All deferred.
 
+Pushed down from MVP on 2026-06-26 (see the linked tickets): the large-diff **LLM chunker + merge pass** (T2.3/T2.4 — MVP hard-errors past the ~150k-token one-call budget instead) and **full per-hunk provenance** (`git blame --follow` + `Co-authored-by` trailer attribution, T2.6 — MVP ships generated-file detection + a `human` default, which pairs naturally with Lanes above).
+
 ## Non-Functional Requirements
 
 1. **NFR-1 — Time-to-URL.** Under 2 seconds (p95) on a 50-hunk PR.
-2. **NFR-2 — Time-to-readable.** Measured in week 1 via the SLA spike. Target band 15–25 seconds (p95) on a 50-hunk PR. The committed number replaces this band before week 2 ships.
+2. **NFR-2 — Time-to-readable.** Measured by the SLA spike (T1.11) at the start of Phase 2, once T2.1 exists. Target band 15–25 seconds (p95) on a 50-hunk PR. The committed number replaces this band before T2.2–T2.8 land. *(Amended 2026-06-26: the spike depends on T2.1, so it can't run in week 1.)*
 3. **NFR-3 — Daily LLM cost.** Under $5/day (p95) during dogfood week. Soft warning at $5; hard cap via `REVIEWDEV_DAILY_CAP`.
 4. **NFR-4 — Single-user, local-first.** No accounts, no auth, no telemetry. Localhost only.
 5. **NFR-5 — Zero install friction.** `bun install -g reviewdev` is the only setup step. Skill installs itself.
-6. **NFR-6 — Tests for silently-corruptible surfaces.** Hash + revision-diff and chunked-LLM merge suites must pass before week 1 ships. Recorded LLM fixtures, no live API in CI.
+6. **NFR-6 — Tests for silently-corruptible surfaces.** The hash + revision-diff suite must pass before week 1 ships. Recorded LLM fixtures, no live API in CI. *(Amended 2026-06-26: the chunked-LLM merge suite was retired with the T2.3/T2.4 deferral to P2.)*
 
 ## Out of Scope
 
