@@ -10,6 +10,7 @@ import {
   readPortFile,
   resolveRepoRoot,
   reviewDevDir,
+  serverOrigin,
   writePortFile,
 } from './repo.ts';
 
@@ -18,6 +19,12 @@ describe('repo layout paths', () => {
     expect(reviewDevDir('/r')).toBe(join('/r', '.reviewdev'));
     expect(dbPath('/r')).toBe(join('/r', '.reviewdev', 'db.sqlite'));
     expect(portFilePath('/r')).toBe(join('/r', '.reviewdev', 'port'));
+  });
+
+  it('builds the loopback origin on the IPv4 address, not localhost', () => {
+    // The literal 127.0.0.1 (never `localhost`) is the load-bearing detail —
+    // serve binds that family; a hostname could split across ::1.
+    expect(serverOrigin(7894)).toBe('http://127.0.0.1:7894');
   });
 });
 

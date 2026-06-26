@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hunkId, parseDiff } from './diff.ts';
+import { diffHash, hunkId, parseDiff } from './diff.ts';
 
 // T1.4 ships proportionate coverage of the parser + hash. The exhaustive
 // property/fixture suite (30+ hash cases, 10+ revision-diff cases) is T1.6.
@@ -23,6 +23,29 @@ describe('hunkId', () => {
   it('does not collapse the path/content boundary', () => {
     // Without the "\n" separator, ("ab","c") and ("a","bc") would collide.
     expect(hunkId('ab', 'c')).not.toBe(hunkId('a', 'bc'));
+  });
+});
+
+describe('diffHash', () => {
+  const a = hunkId('a.ts', '+x;');
+  const b = hunkId('b.ts', '+y;');
+
+  it('is order-independent over the hunk-id set', () => {
+    expect(diffHash([a, b])).toBe(diffHash([b, a]));
+  });
+
+  it('collapses duplicate ids (set semantics)', () => {
+    expect(diffHash([a, a, b])).toBe(diffHash([a, b]));
+  });
+
+  it('changes when the set of hunks changes', () => {
+    expect(diffHash([a])).not.toBe(diffHash([a, b]));
+    expect(diffHash([a])).not.toBe(diffHash([b]));
+  });
+
+  it('hashes an empty set to a stable lowercase-hex value', () => {
+    expect(diffHash([])).toMatch(/^[0-9a-f]{64}$/);
+    expect(diffHash([])).toBe(diffHash([]));
   });
 });
 

@@ -8,8 +8,15 @@ import {
   latestMigrationVersion,
   openDb,
 } from '../db/migrate.ts';
-import { dbPath, ensureReviewDevDir, resolveRepoRoot, writePortFile } from '../repo.ts';
+import {
+  dbPath,
+  ensureReviewDevDir,
+  resolveRepoRoot,
+  serverOrigin,
+  writePortFile,
+} from '../repo.ts';
 import { logLine } from '../log.ts';
+import { createRevision, parseRevisionInput } from '../db/revisions.ts';
 
 // Ports probed on startup, in order. design.md § Server lifecycle: "No daemon;
 // user runs `reviewdev serve` per repo." One repo per port keeps routing trivial.
@@ -30,13 +37,41 @@ export type ServeFn = (port: number, fetch: FetchHandler) => RunningServer;
 /**
  * Build the Hono app. `getPort` is read at request time, not bound here,
  * because the listening port isn't known until the probe picks one — the app
- * is constructed before `listenInRange` runs.
+ * is constructed before `listenInRange` runs. `db` is the single per-repo
+ * handle the publish-writer (`POST /api/pr`) writes through.
  */
-export function createApp(deps: { getPort: () => number; schemaVersion: number }): Hono {
+export function createApp(deps: {
+  getPort: () => number;
+  schemaVersion: number;
+  db: Database;
+}): Hono {
   const app = new Hono();
   app.get('/health', (c) =>
     c.json({ ok: true, port: deps.getPort(), schema_version: deps.schemaVersion }),
   );
+
+  // Upsert pull + create revision (T1.5). The CLI POSTs the resolved diff here;
+  // the server owns the write so revision numbering and duplicate detection
+  // happen against one DB handle. The returned `url` points at the resulting
+  // revision — the same URL for a fresh revision or a deduped re-publish.
+  app.post('/api/pr', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: 'request body must be JSON' }, 400);
+    }
+    let input;
+    try {
+      input = parseRevisionInput(raw);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+    const result = createRevision(deps.db, input);
+    const url = `${serverOrigin(deps.getPort())}/pr/${result.pullId}/rev/${result.revisionNumber}`;
+    return c.json({ pull_id: result.pullId, revision_number: result.revisionNumber, url });
+  });
+
   return app;
 }
 
@@ -143,7 +178,7 @@ export const runServe: CommandHandler = async (_args, io) => {
   try {
     const ran = applyMigrations(db, defaultMigrationsDir());
     version = currentVersion(db);
-    logLine(io, 'migrations.applied', { count: ran.length, schema_version: version });
+    logLine(io.stdout, 'migrations.applied', { count: ran.length, schema_version: version });
   } catch (err) {
     db.close();
     return fail(io, err);
@@ -164,7 +199,7 @@ export const runServe: CommandHandler = async (_args, io) => {
   }
 
   let boundPort = 0;
-  const app = createApp({ getPort: () => boundPort, schemaVersion: version });
+  const app = createApp({ getPort: () => boundPort, schemaVersion: version, db });
 
   let server: RunningServer;
   try {
@@ -180,7 +215,7 @@ export const runServe: CommandHandler = async (_args, io) => {
   // and DB handle rather than leaking them via an unhandled rejection.
   try {
     writePortFile(repoRoot, boundPort);
-    logLine(io, 'serve.listening', {
+    logLine(io.stdout, 'serve.listening', {
       port: boundPort,
       repo_root: repoRoot,
       schema_version: version,
@@ -202,7 +237,7 @@ export const runServe: CommandHandler = async (_args, io) => {
     const shutdown = () => {
       if (shuttingDown) return;
       shuttingDown = true;
-      logLine(io, 'serve.shutdown', { port: boundPort });
+      logLine(io.stdout, 'serve.shutdown', { port: boundPort });
       server.stop();
       db.close();
       resolve(0);

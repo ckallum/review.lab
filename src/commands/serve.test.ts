@@ -4,11 +4,19 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn } from 'node:child_process';
+import type { Database } from 'bun:sqlite';
 import { applyMigrations, defaultMigrationsDir, openDb } from '../db/migrate.ts';
 import { dbPath, ensureReviewDevDir } from '../repo.ts';
 import { PORT_RANGE, createApp, listenInRange, portRangeFromEnv, type ServeFn } from './serve.ts';
 
 const noopFetch = () => new Response('ok');
+
+/** A migrated in-memory DB for the createApp route tests. */
+function freshDb(): Database {
+  const db = openDb(':memory:');
+  applyMigrations(db, defaultMigrationsDir());
+  return db;
+}
 
 // A fake ServeFn that reports the given ports as already taken, so the
 // port-probe logic can be exercised without binding real sockets.
@@ -25,7 +33,7 @@ function fakeServe(busy: Set<number>): ServeFn {
 
 describe('createApp — GET /health', () => {
   it('returns ok, the live port, and schema_version', async () => {
-    const app = createApp({ getPort: () => 7893, schemaVersion: 1 });
+    const app = createApp({ getPort: () => 7893, schemaVersion: 1, db: freshDb() });
     const res = await app.request('/health');
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, port: 7893, schema_version: 1 });
@@ -33,7 +41,7 @@ describe('createApp — GET /health', () => {
 
   it('reads the port at request time (probe sets it after app construction)', async () => {
     let bound = 0;
-    const app = createApp({ getPort: () => bound, schemaVersion: 2 });
+    const app = createApp({ getPort: () => bound, schemaVersion: 2, db: freshDb() });
     bound = 7895;
     expect(await (await app.request('/health')).json()).toEqual({
       ok: true,
@@ -43,8 +51,120 @@ describe('createApp — GET /health', () => {
   });
 
   it('404s an unknown path', async () => {
-    const app = createApp({ getPort: () => 7891, schemaVersion: 1 });
+    const app = createApp({ getPort: () => 7891, schemaVersion: 1, db: freshDb() });
     expect((await app.request('/nope')).status).toBe(404);
+  });
+});
+
+describe('createApp — POST /api/pr', () => {
+  const hunk = (id: string, file = 'a.ts') => ({
+    id,
+    filePath: file,
+    startLine: 1,
+    endLine: 2,
+    content: ' a\n+b',
+    kind: 'mod' as const,
+  });
+
+  function post(app: ReturnType<typeof createApp>, body: unknown) {
+    return app.request('/api/pr', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('creates a pull + revision and returns the revision URL', async () => {
+    const db = freshDb();
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const res = await post(app, {
+      branch: 'feature',
+      base: 'main',
+      headSha: 'head1',
+      baseSha: 'base1',
+      hunks: [hunk('h1'), hunk('h2', 'b.ts')],
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      pull_id: 1,
+      revision_number: 1,
+      url: 'http://127.0.0.1:7894/pr/1/rev/1',
+    });
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM hunks').get()!.n).toBe(2);
+  });
+
+  it('dedupes an identical re-publish: same revision, no new row', async () => {
+    const db = freshDb();
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const body = {
+      branch: 'feature',
+      base: 'main',
+      headSha: 'h',
+      baseSha: 'b',
+      hunks: [hunk('h1')],
+    };
+
+    expect(await (await post(app, body)).json()).toMatchObject({ revision_number: 1 });
+    // Re-post the same diff (even with a different head sha) → diff_hash matches,
+    // so no new revision is minted and the existing URL comes back.
+    const again = await post(app, { ...body, headSha: 'h2' });
+    expect(await again.json()).toMatchObject({ pull_id: 1, revision_number: 1 });
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM revisions').get()!.n).toBe(1);
+  });
+
+  it('appends revision 2 when the diff changes, bumping the pull', async () => {
+    const db = freshDb();
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    await post(app, {
+      branch: 'feature',
+      base: 'main',
+      headSha: 'h1',
+      baseSha: 'b',
+      hunks: [hunk('h1')],
+    });
+    const first = db
+      .query<{ updated_at: string }, []>('SELECT updated_at FROM pulls WHERE id = 1')
+      .get()!.updated_at;
+
+    const res = await post(app, {
+      branch: 'feature',
+      base: 'main',
+      headSha: 'h2',
+      baseSha: 'b',
+      hunks: [hunk('h1'), hunk('h2', 'b.ts')],
+    });
+    expect(await res.json()).toMatchObject({ pull_id: 1, revision_number: 2 });
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM revisions').get()!.n).toBe(2);
+    // Hunks are filed under the pull derived from the revision, not the payload.
+    const orphan = db
+      .query<{ n: number }, []>('SELECT COUNT(*) AS n FROM hunks WHERE pull_id != 1')
+      .get()!.n;
+    expect(orphan).toBe(0);
+    // updated_at advanced on the second publish (design.md § Writer invariants).
+    const second = db
+      .query<{ updated_at: string }, []>('SELECT updated_at FROM pulls WHERE id = 1')
+      .get()!.updated_at;
+    expect(second >= first).toBe(true);
+  });
+
+  it('400s an invalid body without writing anything', async () => {
+    const db = freshDb();
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const res = await post(app, { base: 'main', headSha: 'h', baseSha: 'b', hunks: [] });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(/branch/);
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM pulls').get()!.n).toBe(0);
+  });
+
+  it('400s a non-JSON body', async () => {
+    const db = freshDb();
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const res = await app.request('/api/pr', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: 'not json',
+    });
+    expect(res.status).toBe(400);
   });
 });
 

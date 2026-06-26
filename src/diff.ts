@@ -48,6 +48,20 @@ export function hunkId(filePath: string, content: string): string {
   return createHash('sha256').update(`${filePath}\n${content}`).digest('hex');
 }
 
+/**
+ * The revision's `diff_hash` (design.md § Data Model): `SHA-256` over the
+ * *sorted hunk-id set*. Set-valued and order-independent on purpose — two
+ * publishes whose hunks reorder or repeat but resolve to the same content
+ * collapse to one hash, so re-running `publish` with no real change is detected
+ * as a duplicate (SPEC.md § Revisions) rather than minting a new revision.
+ * Hunk ids are 64-char hex, so `\n` is an unambiguous join separator. An empty
+ * hunk set hashes the empty string — a stable, well-defined value.
+ */
+export function diffHash(hunkIds: readonly string[]): string {
+  const sorted = [...new Set(hunkIds)].sort();
+  return createHash('sha256').update(sorted.join('\n')).digest('hex');
+}
+
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 /**
