@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from 'bun:sqlite';
+import { hunkId } from '../diff.ts';
 import { applyMigrations, defaultMigrationsDir, openDb } from './migrate.ts';
-import { createRevision, parseRevisionInput, type RevisionInput } from './revisions.ts';
+import { createRevision, MAX_HUNKS, parseRevisionInput, type RevisionInput } from './revisions.ts';
 
 function freshDb(): Database {
   const db = openDb(':memory:');
@@ -106,12 +107,31 @@ describe('parseRevisionInput', () => {
     headSha: 'h',
     baseSha: 'b',
     hunks: [
-      { id: 'h1', filePath: 'a.ts', startLine: 1, endLine: 2, content: ' a\n+b', kind: 'mod' },
+      {
+        id: hunkId('a.ts', ' a\n+b'),
+        filePath: 'a.ts',
+        startLine: 1,
+        endLine: 2,
+        content: ' a\n+b',
+        kind: 'mod',
+      },
     ],
   };
 
   it('accepts a well-formed body', () => {
     expect(parseRevisionInput(wire)).toEqual(wire);
+  });
+
+  it('rejects a hunk whose id does not match its file_path + content hash', () => {
+    const tampered = { ...wire, hunks: [{ ...wire.hunks[0], id: 'not-the-real-hash' }] };
+    expect(() => parseRevisionInput(tampered)).toThrow(/hunks\[0\]\.id does not match/);
+  });
+
+  it(`rejects more than MAX_HUNKS hunks before validating them`, () => {
+    // Filled with empty objects: the count cap fires before per-hunk validation,
+    // so these never need valid ids.
+    const tooMany = { ...wire, hunks: new Array(MAX_HUNKS + 1).fill({}) };
+    expect(() => parseRevisionInput(tooMany)).toThrow(new RegExp(`exceeds the ${MAX_HUNKS} cap`));
   });
 
   it('accepts an empty hunk set', () => {

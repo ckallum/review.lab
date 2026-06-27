@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { diffHash, type HunkKind, type ParsedHunk } from '../diff.ts';
+import { diffHash, hunkId, type HunkKind, type ParsedHunk } from '../diff.ts';
 
 /**
  * Revision creation + duplicate detection (T1.5) — the write behind
@@ -34,6 +34,12 @@ export interface RevisionResult {
 
 const HUNK_KINDS: ReadonlySet<string> = new Set<HunkKind>(['add', 'del', 'mod']);
 
+// Upper bound on hunks per publish. A 50-hunk PR is the NFR-1 benchmark and
+// even a sweeping refactor stays well under this, so the cap only rejects
+// pathological or runaway input — bounding the row-by-row insert loop and the
+// buffered request body rather than trusting the client to be reasonable.
+export const MAX_HUNKS = 10_000;
+
 /**
  * Validate an untrusted `POST /api/pr` body into a `RevisionInput`, throwing a
  * field-named `Error` on the first problem so the route can answer `400` with a
@@ -49,6 +55,9 @@ export function parseRevisionInput(raw: unknown): RevisionInput {
   const headSha = requireString(o.headSha, 'headSha');
   const baseSha = requireString(o.baseSha, 'baseSha');
   if (!Array.isArray(o.hunks)) throw new Error('hunks must be an array');
+  // Cap before per-hunk validation so a runaway array is rejected cheaply.
+  if (o.hunks.length > MAX_HUNKS)
+    throw new Error(`hunks exceeds the ${MAX_HUNKS} cap (got ${o.hunks.length})`);
   const hunks = o.hunks.map((h, i) => parseHunk(h, i));
   return { branch, base, headSha, baseSha, hunks };
 }
@@ -59,13 +68,24 @@ function parseHunk(raw: unknown, index: number): ParsedHunk {
   const kind = requireString(h.kind, `hunks[${index}].kind`);
   if (!HUNK_KINDS.has(kind))
     throw new Error(`hunks[${index}].kind must be add|del|mod, got '${kind}'`);
+  const id = requireString(h.id, `hunks[${index}].id`);
+  const filePath = requireString(h.filePath, `hunks[${index}].filePath`);
+  // Content may be empty in principle; only the type is constrained.
+  const content = requireStringAllowEmpty(h.content, `hunks[${index}].content`);
+  // The id is content-addressed (diff.ts § Hunk identity) and feeds both
+  // `diff_hash` and cross-revision diffing. Recompute it rather than trusting
+  // the wire value: an id that disagrees with its file_path + content would
+  // silently corrupt duplicate detection and the revision diff. `reviewdev
+  // publish` already sends a matching id; this rejects a malformed or foreign
+  // client at the trust boundary instead of persisting a poisoned hash.
+  if (hunkId(filePath, content) !== id)
+    throw new Error(`hunks[${index}].id does not match its file_path + content hash`);
   return {
-    id: requireString(h.id, `hunks[${index}].id`),
-    filePath: requireString(h.filePath, `hunks[${index}].filePath`),
+    id,
+    filePath,
     startLine: requireInt(h.startLine, `hunks[${index}].startLine`),
     endLine: requireInt(h.endLine, `hunks[${index}].endLine`),
-    // Content may be empty in principle; only the type is constrained.
-    content: requireStringAllowEmpty(h.content, `hunks[${index}].content`),
+    content,
     kind: kind as HunkKind,
   };
 }

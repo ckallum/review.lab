@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn } from 'node:child_process';
 import type { Database } from 'bun:sqlite';
+import { hunkId } from '../diff.ts';
 import { applyMigrations, defaultMigrationsDir, openDb } from '../db/migrate.ts';
 import { dbPath, ensureReviewDevDir } from '../repo.ts';
 import { PORT_RANGE, createApp, listenInRange, portRangeFromEnv, type ServeFn } from './serve.ts';
@@ -57,12 +58,14 @@ describe('createApp — GET /health', () => {
 });
 
 describe('createApp — POST /api/pr', () => {
-  const hunk = (id: string, file = 'a.ts') => ({
-    id,
+  // Real content-addressed id so the body passes parseRevisionInput's id check.
+  // Distinct (file, content) → distinct id, which controls dedup across tests.
+  const hunk = (file: string, content: string) => ({
+    id: hunkId(file, content),
     filePath: file,
     startLine: 1,
     endLine: 2,
-    content: ' a\n+b',
+    content,
     kind: 'mod' as const,
   });
 
@@ -82,7 +85,7 @@ describe('createApp — POST /api/pr', () => {
       base: 'main',
       headSha: 'head1',
       baseSha: 'base1',
-      hunks: [hunk('h1'), hunk('h2', 'b.ts')],
+      hunks: [hunk('a.ts', '+a'), hunk('b.ts', '+b')],
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -101,7 +104,7 @@ describe('createApp — POST /api/pr', () => {
       base: 'main',
       headSha: 'h',
       baseSha: 'b',
-      hunks: [hunk('h1')],
+      hunks: [hunk('a.ts', '+a')],
     };
 
     expect(await (await post(app, body)).json()).toMatchObject({ revision_number: 1 });
@@ -120,7 +123,7 @@ describe('createApp — POST /api/pr', () => {
       base: 'main',
       headSha: 'h1',
       baseSha: 'b',
-      hunks: [hunk('h1')],
+      hunks: [hunk('a.ts', '+a')],
     });
     const first = db
       .query<{ updated_at: string }, []>('SELECT updated_at FROM pulls WHERE id = 1')
@@ -131,7 +134,7 @@ describe('createApp — POST /api/pr', () => {
       base: 'main',
       headSha: 'h2',
       baseSha: 'b',
-      hunks: [hunk('h1'), hunk('h2', 'b.ts')],
+      hunks: [hunk('a.ts', '+a'), hunk('b.ts', '+b')],
     });
     expect(await res.json()).toMatchObject({ pull_id: 1, revision_number: 2 });
     expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM revisions').get()!.n).toBe(2);
@@ -154,6 +157,21 @@ describe('createApp — POST /api/pr', () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toMatch(/branch/);
     expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM pulls').get()!.n).toBe(0);
+  });
+
+  it('400s a hunk whose id does not match its content, writing nothing', async () => {
+    const db = freshDb();
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const res = await post(app, {
+      branch: 'feature',
+      base: 'main',
+      headSha: 'h',
+      baseSha: 'b',
+      hunks: [{ ...hunk('a.ts', '+a'), id: 'tampered-id' }],
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(/does not match/);
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM hunks').get()!.n).toBe(0);
   });
 
   it('400s a non-JSON body', async () => {
@@ -182,7 +200,7 @@ describe('createApp — POST /api/pr', () => {
       base: 'main',
       headSha: 'h',
       baseSha: 'b',
-      hunks: [hunk('h1')],
+      hunks: [hunk('a.ts', '+a')],
     });
     expect(res.status).toBe(500);
     expect(((await res.json()) as { error: string }).error).toMatch(/internal error/);
