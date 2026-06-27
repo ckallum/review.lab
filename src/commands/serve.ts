@@ -44,6 +44,10 @@ export function createApp(deps: {
   getPort: () => number;
   schemaVersion: number;
   db: Database;
+  // Diagnostic sink for an unexpected route throw (default no-op). `runServe`
+  // wires it to the structured log so a failed write leaves a server-side trace
+  // instead of vanishing into a bare 500.
+  onError?: (err: unknown) => void;
 }): Hono {
   const app = new Hono();
   app.get('/health', (c) =>
@@ -52,8 +56,7 @@ export function createApp(deps: {
 
   // Upsert pull + create revision (T1.5). The CLI POSTs the resolved diff here;
   // the server owns the write so revision numbering and duplicate detection
-  // happen against one DB handle. The returned `url` points at the resulting
-  // revision — the same URL for a fresh revision or a deduped re-publish.
+  // happen against one DB handle.
   app.post('/api/pr', async (c) => {
     let raw: unknown;
     try {
@@ -67,9 +70,22 @@ export function createApp(deps: {
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
+    // A throw here (SQLITE_BUSY, an unexpected constraint violation) propagates
+    // to app.onError below — logged + answered as a JSON 500, not a bare one.
     const result = createRevision(deps.db, input);
+    // The URL points at the resulting revision — identical for a fresh revision
+    // or a deduped re-publish, so `result.created` need not reach the client
+    // (the dedupe outcome is observable to the CLI via the unchanged URL).
     const url = `${serverOrigin(deps.getPort())}/pr/${result.pullId}/rev/${result.revisionNumber}`;
     return c.json({ pull_id: result.pullId, revision_number: result.revisionNumber, url });
+  });
+
+  // Last-resort handler for an unhandled route throw: log it (so the reason
+  // survives) and return a JSON body the CLI can surface, rather than Hono's
+  // default bare "500 Internal Server Error" with nothing logged.
+  app.onError((err, c) => {
+    deps.onError?.(err);
+    return c.json({ error: 'internal error handling request' }, 500);
   });
 
   return app;
@@ -199,7 +215,15 @@ export const runServe: CommandHandler = async (_args, io) => {
   }
 
   let boundPort = 0;
-  const app = createApp({ getPort: () => boundPort, schemaVersion: version, db });
+  const app = createApp({
+    getPort: () => boundPort,
+    schemaVersion: version,
+    db,
+    onError: (err) =>
+      logLine(io.stdout, 'api.error', {
+        message: err instanceof Error ? err.message : String(err),
+      }),
+  });
 
   let server: RunningServer;
   try {

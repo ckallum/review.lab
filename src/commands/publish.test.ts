@@ -246,6 +246,38 @@ describe('uploadRevision', () => {
       server.stop(true);
     }
   });
+
+  it('falls back to the raw text body when a non-2xx error is not JSON', async () => {
+    // An opaque 500 (or foreign process) without a `{ error }` body must still
+    // carry a fingerprint, not collapse to a bare "HTTP 500".
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () => new Response('boom not json', { status: 500 }),
+    });
+    try {
+      await expect(uploadRevision(server.port!, payload)).rejects.toThrow(
+        /server rejected publish \(HTTP 500\): boom not json/,
+      );
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  it('rejects a 2xx response whose body is missing the url', async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () => Response.json({ pull_id: 1, revision_number: 1 }),
+    });
+    try {
+      await expect(uploadRevision(server.port!, payload)).rejects.toThrow(
+        /unexpected publish response/,
+      );
+    } finally {
+      server.stop(true);
+    }
+  });
 });
 
 // End-to-end: spawn the real `reviewdev publish` against a throwaway repo.

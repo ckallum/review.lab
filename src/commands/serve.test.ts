@@ -166,6 +166,28 @@ describe('createApp — POST /api/pr', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it('answers a logged JSON 500 (not a bare 500) when the write throws', async () => {
+    const db = freshDb();
+    const errors: unknown[] = [];
+    const app = createApp({
+      getPort: () => 7894,
+      schemaVersion: 1,
+      db,
+      onError: (e) => errors.push(e),
+    });
+    db.close(); // a closed handle makes createRevision throw on its first query
+    const res = await post(app, {
+      branch: 'feature',
+      base: 'main',
+      headSha: 'h',
+      baseSha: 'b',
+      hunks: [hunk('h1')],
+    });
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toMatch(/internal error/);
+    expect(errors).toHaveLength(1); // the throw reached onError, so it gets logged
+  });
 });
 
 describe('listenInRange', () => {

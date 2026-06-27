@@ -134,7 +134,7 @@ export function resolveDiff(deps: {
   const base = detectBaseBranch(deps.git, deps.ghBaseRef ?? (() => ghBaseRefName(deps.cwd)));
 
   // Not named `fetch` — that would shadow the global `fetch()` this module uses
-  // in serverHealthy, a footgun for any later edit in this scope.
+  // in probeServer, a footgun for any later edit in this scope.
   const fetchResult = throttledFetch({
     git: deps.git,
     base,
@@ -190,16 +190,37 @@ export async function uploadRevision(
   }
 
   if (!res.ok) {
-    // The route answers 400 with `{ error }`; surface that reason when present.
-    const reason = await res
-      .json()
-      .then((b) => (b as { error?: string })?.error)
-      .catch(() => undefined);
+    const reason = await readErrorReason(res);
     throw new Error(
       `reviewdev: server rejected publish (HTTP ${res.status})${reason ? `: ${reason}` : ''}`,
     );
   }
-  return (await res.json()) as PublishResponse;
+
+  // Validate the success body rather than trusting the cast: a malformed or
+  // foreign response (e.g. a non-reviewdev process answering the port) would
+  // otherwise yield `undefined` fields and print a garbage URL silently.
+  const result = (await res.json().catch(() => null)) as PublishResponse | null;
+  if (!result || typeof result.url !== 'string') {
+    throw new Error('reviewdev: server returned an unexpected publish response');
+  }
+  return result;
+}
+
+/**
+ * Extract a human reason from a non-2xx response. The route sends `{ error }`
+ * JSON, but a 500 (or a foreign process on the port) may send a bare or
+ * non-JSON body — fall back to the raw text so the failure keeps a fingerprint
+ * instead of collapsing to "HTTP <status>" with no cause.
+ */
+async function readErrorReason(res: Response): Promise<string> {
+  const text = await res.text().catch(() => '');
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown };
+    if (typeof parsed.error === 'string' && parsed.error.length > 0) return parsed.error;
+  } catch {
+    // Not JSON — fall through to the raw text below.
+  }
+  return text.trim().slice(0, 200);
 }
 
 /** `--cwd <path>` defaults to the process cwd; `--session <id>` is accepted now
