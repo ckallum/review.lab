@@ -46,8 +46,8 @@ export function createApp(deps: {
   db: Database;
   // Diagnostic sink for an unexpected route throw (default no-op). `runServe`
   // wires it to the structured log so a failed write leaves a server-side trace
-  // instead of vanishing into a bare 500.
-  onError?: (err: unknown) => void;
+  // (message + stack + request identity) instead of vanishing into a bare 500.
+  onError?: (err: unknown, context?: Record<string, unknown>) => void;
 }): Hono {
   const app = new Hono();
   app.get('/health', (c) =>
@@ -70,9 +70,21 @@ export function createApp(deps: {
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
-    // A throw here (SQLITE_BUSY, an unexpected constraint violation) propagates
-    // to app.onError below — logged + answered as a JSON 500, not a bare one.
-    const result = createRevision(deps.db, input);
+    // A throw here (SQLITE_BUSY, an unexpected constraint violation) is caught
+    // and logged WITH the request identity that's in scope — app.onError below
+    // can't see the parsed input, so a generic 500 there would be contextless.
+    let result;
+    try {
+      result = createRevision(deps.db, input);
+    } catch (err) {
+      deps.onError?.(err, {
+        branch: input.branch,
+        base_sha: input.baseSha,
+        head_sha: input.headSha,
+        hunk_count: input.hunks.length,
+      });
+      return c.json({ error: 'internal error creating revision' }, 500);
+    }
     // The URL points at the resulting revision — identical for a fresh revision
     // or a deduped re-publish, so `result.created` need not reach the client
     // (the dedupe outcome is observable to the CLI via the unchanged URL).
@@ -80,9 +92,9 @@ export function createApp(deps: {
     return c.json({ pull_id: result.pullId, revision_number: result.revisionNumber, url });
   });
 
-  // Last-resort handler for an unhandled route throw: log it (so the reason
-  // survives) and return a JSON body the CLI can surface, rather than Hono's
-  // default bare "500 Internal Server Error" with nothing logged.
+  // Last-resort handler for any OTHER unhandled route throw: log it (so the
+  // reason survives) and return a JSON body the CLI can surface, rather than
+  // Hono's default bare "500 Internal Server Error" with nothing logged.
   app.onError((err, c) => {
     deps.onError?.(err);
     return c.json({ error: 'internal error handling request' }, 500);
@@ -219,9 +231,11 @@ export const runServe: CommandHandler = async (_args, io) => {
     getPort: () => boundPort,
     schemaVersion: version,
     db,
-    onError: (err) =>
+    onError: (err, context) =>
       logLine(io.stdout, 'api.error', {
         message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        ...context,
       }),
   });
 

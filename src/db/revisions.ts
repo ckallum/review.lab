@@ -36,8 +36,11 @@ const HUNK_KINDS: ReadonlySet<string> = new Set<HunkKind>(['add', 'del', 'mod'])
 
 // Upper bound on hunks per publish. A 50-hunk PR is the NFR-1 benchmark and
 // even a sweeping refactor stays well under this, so the cap only rejects
-// pathological or runaway input — bounding the row-by-row insert loop and the
-// buffered request body rather than trusting the client to be reasonable.
+// pathological or runaway input. It bounds the row-by-row insert loop and the
+// per-hunk validation work — NOT the request body itself, which `c.req.json()`
+// has already buffered by the time this runs; fully bounding that would need a
+// body-limit middleware, left out as out of the localhost single-user threat
+// model.
 export const MAX_HUNKS = 10_000;
 
 /**
@@ -83,8 +86,10 @@ function parseHunk(raw: unknown, index: number): ParsedHunk {
   return {
     id,
     filePath,
-    startLine: requireInt(h.startLine, `hunks[${index}].startLine`),
-    endLine: requireInt(h.endLine, `hunks[${index}].endLine`),
+    // Line numbers are 1-based (diff.ts) — reject 0/negatives at the boundary
+    // since the INTEGER columns carry no CHECK to catch a foreign client.
+    startLine: requirePositiveInt(h.startLine, `hunks[${index}].startLine`),
+    endLine: requirePositiveInt(h.endLine, `hunks[${index}].endLine`),
     content,
     kind: kind as HunkKind,
   };
@@ -101,8 +106,9 @@ function requireStringAllowEmpty(v: unknown, field: string): string {
   return v;
 }
 
-function requireInt(v: unknown, field: string): number {
-  if (typeof v !== 'number' || !Number.isInteger(v)) throw new Error(`${field} must be an integer`);
+function requirePositiveInt(v: unknown, field: string): number {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1)
+    throw new Error(`${field} must be a positive integer`);
   return v;
 }
 

@@ -7,6 +7,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import type { Database } from 'bun:sqlite';
 import { hunkId } from '../diff.ts';
 import { applyMigrations, defaultMigrationsDir, openDb } from '../db/migrate.ts';
+import { MAX_HUNKS } from '../db/revisions.ts';
 import { dbPath, ensureReviewDevDir } from '../repo.ts';
 import { PORT_RANGE, createApp, listenInRange, portRangeFromEnv, type ServeFn } from './serve.ts';
 
@@ -159,6 +160,21 @@ describe('createApp — POST /api/pr', () => {
     expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM pulls').get()!.n).toBe(0);
   });
 
+  it('400s more than MAX_HUNKS hunks without writing a revision', async () => {
+    const db = freshDb();
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    // Empty objects: the count cap fires before per-hunk validation.
+    const res = await post(app, {
+      branch: 'feature',
+      base: 'main',
+      headSha: 'h',
+      baseSha: 'b',
+      hunks: new Array(MAX_HUNKS + 1).fill({}),
+    });
+    expect(res.status).toBe(400);
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM revisions').get()!.n).toBe(0);
+  });
+
   it('400s a hunk whose id does not match its content, writing nothing', async () => {
     const db = freshDb();
     const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
@@ -185,14 +201,14 @@ describe('createApp — POST /api/pr', () => {
     expect(res.status).toBe(400);
   });
 
-  it('answers a logged JSON 500 (not a bare 500) when the write throws', async () => {
+  it('answers a logged JSON 500 with request context when the write throws', async () => {
     const db = freshDb();
-    const errors: unknown[] = [];
+    const calls: Array<{ err: unknown; context?: Record<string, unknown> }> = [];
     const app = createApp({
       getPort: () => 7894,
       schemaVersion: 1,
       db,
-      onError: (e) => errors.push(e),
+      onError: (err, context) => calls.push({ err, context }),
     });
     db.close(); // a closed handle makes createRevision throw on its first query
     const res = await post(app, {
@@ -204,7 +220,9 @@ describe('createApp — POST /api/pr', () => {
     });
     expect(res.status).toBe(500);
     expect(((await res.json()) as { error: string }).error).toMatch(/internal error/);
-    expect(errors).toHaveLength(1); // the throw reached onError, so it gets logged
+    // The throw is logged once, with the request identity in scope at the route.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.context).toMatchObject({ branch: 'feature', hunk_count: 1 });
   });
 });
 

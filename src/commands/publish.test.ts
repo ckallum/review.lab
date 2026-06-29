@@ -170,6 +170,23 @@ describe('resolveDiff', () => {
     expect(payload.base).toBe('develop');
   });
 
+  it('refuses to publish from a detached HEAD', () => {
+    const git = ((args: readonly string[]) => {
+      const key = args.join(' ');
+      if (key === 'symbolic-ref --short refs/remotes/origin/HEAD') return 'origin/main';
+      if (key === 'fetch origin main') return '';
+      if (key === 'status --porcelain') return '';
+      if (key === 'rev-parse HEAD') return 'h';
+      if (key === 'merge-base HEAD origin/main') return 'b';
+      if (key === 'rev-parse --abbrev-ref HEAD') return 'HEAD'; // detached
+      throw new Error(`unexpected git call: ${key}`);
+    }) as GitRunner;
+
+    expect(() => resolveDiff({ git, cwd: dir, repoRoot: dir, now: 1_000_000 })).toThrow(
+      /detached HEAD/,
+    );
+  });
+
   it('warns (before the throwing endpoints step) on a failed fetch and a dirty tree', () => {
     const warnings: string[] = [];
     const git = ((args: readonly string[]) => {

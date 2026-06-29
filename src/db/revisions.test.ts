@@ -157,6 +157,15 @@ describe('parseRevisionInput', () => {
     const badKind = { ...wire, hunks: [{ ...wire.hunks[0], kind: 'replace' }] };
     expect(() => parseRevisionInput(badKind)).toThrow(/hunks\[0\]\.kind must be add\|del\|mod/);
     const badLine = { ...wire, hunks: [{ ...wire.hunks[0], startLine: 1.5 }] };
-    expect(() => parseRevisionInput(badLine)).toThrow(/hunks\[0\]\.startLine must be an integer/);
+    expect(() => parseRevisionInput(badLine)).toThrow(
+      /hunks\[0\]\.startLine must be a positive integer/,
+    );
+  });
+
+  it('rejects a non-positive line number (1-based; 0/negatives are foreign input)', () => {
+    const zero = { ...wire, hunks: [{ ...wire.hunks[0], startLine: 0 }] };
+    expect(() => parseRevisionInput(zero)).toThrow(/startLine must be a positive integer/);
+    const negative = { ...wire, hunks: [{ ...wire.hunks[0], endLine: -3 }] };
+    expect(() => parseRevisionInput(negative)).toThrow(/endLine must be a positive integer/);
   });
 });

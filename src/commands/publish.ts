@@ -150,6 +150,12 @@ export function resolveDiff(deps: {
 
   const { headSha, baseSha } = resolveEndpoints(deps.git, base);
   const branch = currentBranch(deps.git);
+  // Detached HEAD: `currentBranch` yields the literal "HEAD", which would become
+  // the `pulls.branch` key — so unrelated detached publishes in one repo would
+  // all collide on a single "HEAD" pull. Refuse rather than silently merge them.
+  if (branch === 'HEAD') {
+    throw new Error('reviewdev: cannot publish from a detached HEAD; check out a branch first');
+  }
   const hunks = parseDiff(diffRange(deps.git, baseSha));
   return { branch, base, headSha, baseSha, hunks, dirty, fetch: fetchResult };
 }
