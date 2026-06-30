@@ -35,25 +35,46 @@ function fakeServe(busy: Set<number>): ServeFn {
 
 describe('createApp — GET /health', () => {
   it('returns ok, the live port, and schema_version', async () => {
-    const app = createApp({ getPort: () => 7893, schemaVersion: 1, db: freshDb() });
+    const app = createApp({
+      getPort: () => 7893,
+      schemaVersion: 1,
+      db: freshDb(),
+      repoRoot: '/repo',
+    });
     const res = await app.request('/health');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, port: 7893, schema_version: 1 });
+    expect(await res.json()).toEqual({
+      ok: true,
+      port: 7893,
+      schema_version: 1,
+      repo_root: '/repo',
+    });
   });
 
   it('reads the port at request time (probe sets it after app construction)', async () => {
     let bound = 0;
-    const app = createApp({ getPort: () => bound, schemaVersion: 2, db: freshDb() });
+    const app = createApp({
+      getPort: () => bound,
+      schemaVersion: 2,
+      db: freshDb(),
+      repoRoot: '/repo',
+    });
     bound = 7895;
     expect(await (await app.request('/health')).json()).toEqual({
       ok: true,
       port: 7895,
       schema_version: 2,
+      repo_root: '/repo',
     });
   });
 
   it('404s an unknown path', async () => {
-    const app = createApp({ getPort: () => 7891, schemaVersion: 1, db: freshDb() });
+    const app = createApp({
+      getPort: () => 7891,
+      schemaVersion: 1,
+      db: freshDb(),
+      repoRoot: '/repo',
+    });
     expect((await app.request('/nope')).status).toBe(404);
   });
 });
@@ -80,7 +101,7 @@ describe('createApp — POST /api/pr', () => {
 
   it('creates a pull + revision and returns the revision URL', async () => {
     const db = freshDb();
-    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db, repoRoot: '/repo' });
     const res = await post(app, {
       branch: 'feature',
       base: 'main',
@@ -99,7 +120,7 @@ describe('createApp — POST /api/pr', () => {
 
   it('dedupes an identical re-publish: same revision, no new row', async () => {
     const db = freshDb();
-    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db, repoRoot: '/repo' });
     const body = {
       branch: 'feature',
       base: 'main',
@@ -118,7 +139,7 @@ describe('createApp — POST /api/pr', () => {
 
   it('appends revision 2 when the diff changes, bumping the pull', async () => {
     const db = freshDb();
-    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db, repoRoot: '/repo' });
     await post(app, {
       branch: 'feature',
       base: 'main',
@@ -153,7 +174,7 @@ describe('createApp — POST /api/pr', () => {
 
   it('400s an invalid body without writing anything', async () => {
     const db = freshDb();
-    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db, repoRoot: '/repo' });
     const res = await post(app, { base: 'main', headSha: 'h', baseSha: 'b', hunks: [] });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toMatch(/branch/);
@@ -162,7 +183,7 @@ describe('createApp — POST /api/pr', () => {
 
   it('400s more than MAX_HUNKS hunks without writing a revision', async () => {
     const db = freshDb();
-    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db, repoRoot: '/repo' });
     // Empty objects: the count cap fires before per-hunk validation.
     const res = await post(app, {
       branch: 'feature',
@@ -177,7 +198,7 @@ describe('createApp — POST /api/pr', () => {
 
   it('400s a hunk whose id does not match its content, writing nothing', async () => {
     const db = freshDb();
-    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db, repoRoot: '/repo' });
     const res = await post(app, {
       branch: 'feature',
       base: 'main',
@@ -192,7 +213,7 @@ describe('createApp — POST /api/pr', () => {
 
   it('400s a non-JSON body', async () => {
     const db = freshDb();
-    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db });
+    const app = createApp({ getPort: () => 7894, schemaVersion: 1, db, repoRoot: '/repo' });
     const res = await app.request('/api/pr', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -208,6 +229,7 @@ describe('createApp — POST /api/pr', () => {
       getPort: () => 7894,
       schemaVersion: 1,
       db,
+      repoRoot: '/repo',
       onError: (err, context) => calls.push({ err, context }),
     });
     db.close(); // a closed handle makes createRevision throw on its first query
@@ -340,7 +362,8 @@ describe('reviewdev serve (subprocess)', () => {
     // 127.0.0.1, not localhost — serve pins the IPv4 family (see bunServe).
     const res = await fetch(`http://127.0.0.1:${port}/health`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, port, schema_version: 1 });
+    // repo_root identifies which repo this server serves (publish verifies it).
+    expect(await res.json()).toEqual({ ok: true, port, schema_version: 1, repo_root: dir });
 
     // Migrations ran against the per-repo DB.
     expect(existsSync(join(dir, '.reviewdev', 'db.sqlite'))).toBe(true);
@@ -382,6 +405,7 @@ describe('reviewdev serve (subprocess)', () => {
         ok: true,
         port,
         schema_version: 1,
+        repo_root: dir,
       });
       expect(await (await fetch(`http://127.0.0.1:${PORT_RANGE.start}/`)).text()).toBe('squatter');
     } finally {

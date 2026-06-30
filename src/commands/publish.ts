@@ -58,23 +58,29 @@ const HEALTH_TIMEOUT_MS = 2_000; // NFR-1 budgets time-to-URL at 2s; the probe s
 /**
  * Outcome of the `/health` preflight. `refused` is the genuine "no server"
  * case — nothing is listening — and gets SPEC.md's "run reviewdev serve"
- * advice. The other failures mean a process IS answering the port but isn't a
- * healthy reviewdev (slow, erroring, or foreign), so the advice differs (#21).
+ * advice. `unhealthy` means a process IS answering but isn't a healthy reviewdev
+ * (slow, erroring, or foreign), so the advice differs (#21). `wrong_repo` means
+ * a healthy reviewdev answered but serves a DIFFERENT repo — a stale port file
+ * pointing at another repo's server; `detail` carries that repo's root.
  */
 export type HealthProbe =
   | { healthy: true }
-  | { healthy: false; reason: 'refused' | 'timeout' | 'unhealthy'; detail: string };
+  | { healthy: false; reason: 'refused' | 'timeout' | 'unhealthy' | 'wrong_repo'; detail: string };
 
 /**
- * Probe the per-repo server on `port`. Connects to `127.0.0.1`, NOT the
- * `localhost` hostname: `serve` binds the IPv4 family specifically (design.md
- * § Security), and `localhost` could resolve to `::1` where nothing listens.
+ * Probe the per-repo server on `port`, confirming it serves `repoRoot`. Connects
+ * to `127.0.0.1`, NOT the `localhost` hostname: `serve` binds the IPv4 family
+ * specifically (design.md § Security), and `localhost` could resolve to `::1`
+ * where nothing listens.
  *
  * Distinguishes connection-refused (no server) from reachable-but-unhealthy
  * (timeout / non-2xx / bad body) so the caller can give the right remedy
  * instead of telling the user to start a server that's already running (#21).
+ * Also rejects a healthy server whose `/health` `repo_root` doesn't match
+ * `repoRoot` — a stale port file pointing at another repo's server, which would
+ * otherwise let the upload write this repo's diff into the wrong DB.
  */
-export async function probeServer(port: number): Promise<HealthProbe> {
+export async function probeServer(port: number, repoRoot: string): Promise<HealthProbe> {
   let res: Response;
   try {
     res = await fetch(`${serverOrigin(port)}/health`, {
@@ -100,14 +106,20 @@ export async function probeServer(port: number): Promise<HealthProbe> {
     };
   }
   if (!res.ok) return { healthy: false, reason: 'unhealthy', detail: `HTTP ${res.status}` };
-  let body: { ok?: unknown };
+  let body: { ok?: unknown; repo_root?: unknown };
   try {
-    body = (await res.json()) as { ok?: unknown };
+    body = (await res.json()) as { ok?: unknown; repo_root?: unknown };
   } catch {
     return { healthy: false, reason: 'unhealthy', detail: 'response was not JSON' };
   }
   if (body?.ok !== true)
     return { healthy: false, reason: 'unhealthy', detail: 'health did not report ok' };
+  if (body.repo_root !== repoRoot)
+    return {
+      healthy: false,
+      reason: 'wrong_repo',
+      detail: typeof body.repo_root === 'string' ? body.repo_root : 'unknown',
+    };
   return { healthy: true };
 }
 
@@ -253,6 +265,13 @@ const serverUnreachableMessage = (repoRoot: string, port: number, detail: string
   `reviewdev: server for ${repoRoot} on port ${port} is not responding (${detail}). ` +
   `It may be slow or stuck — check 'reviewdev serve'.`;
 
+// The port file points at a healthy server for a DIFFERENT repo (stale port
+// file + port reused by another repo's serve). Refuse rather than write this
+// repo's diff into the other repo's DB.
+const wrongRepoMessage = (repoRoot: string, port: number, otherRepo: string) =>
+  `reviewdev: the server on port ${port} serves a different repo (${otherRepo}); ` +
+  `the port file for ${repoRoot} is stale — run 'reviewdev serve' in this repo.`;
+
 export const runPublish: CommandHandler = async (args, io) => {
   const { cwd, session } = parseArgs(args);
 
@@ -271,16 +290,14 @@ export const runPublish: CommandHandler = async (args, io) => {
   if (port === null) {
     return fail(io, new Error(noServerMessage(repoRoot)));
   }
-  const probe = await probeServer(port);
+  const probe = await probeServer(port, repoRoot);
   if (!probe.healthy) {
-    return fail(
-      io,
-      new Error(
-        probe.reason === 'refused'
-          ? noServerMessage(repoRoot)
-          : serverUnreachableMessage(repoRoot, port, probe.detail),
-      ),
-    );
+    let message: string;
+    if (probe.reason === 'refused') message = noServerMessage(repoRoot);
+    else if (probe.reason === 'wrong_repo')
+      message = wrongRepoMessage(repoRoot, port, probe.detail);
+    else message = serverUnreachableMessage(repoRoot, port, probe.detail);
+    return fail(io, new Error(message));
   }
 
   let payload: PublishPayload;

@@ -87,6 +87,30 @@ describe('createRevision', () => {
     expect(afterNew >= afterFirst).toBe(true);
   });
 
+  it('syncs pulls.base on a duplicate that retargets the branch', () => {
+    createRevision(db, input()); // base 'main'
+    const before = db
+      .query<
+        { base: string; updated_at: string },
+        []
+      >('SELECT base, updated_at FROM pulls WHERE id = 1')
+      .get()!;
+    expect(before.base).toBe('main');
+
+    // Same hunk set, different base → dedup (no new revision) but base must sync.
+    const r = createRevision(db, input({ base: 'develop' }));
+    expect(r).toEqual({ pullId: 1, revisionNumber: 1, created: false });
+    const after = db
+      .query<
+        { base: string; updated_at: string },
+        []
+      >('SELECT base, updated_at FROM pulls WHERE id = 1')
+      .get()!;
+    expect(after.base).toBe('develop');
+    expect(after.updated_at >= before.updated_at).toBe(true);
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM revisions').get()!.n).toBe(1);
+  });
+
   it('collapses byte-identical hunks (same content-hash id) into one row', () => {
     createRevision(db, input({ hunks: [hunk('dup'), hunk('dup')] }));
     expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM hunks').get()!.n).toBe(1);

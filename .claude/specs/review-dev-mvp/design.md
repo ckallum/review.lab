@@ -84,7 +84,7 @@ All endpoints served by `reviewdev serve` on the per-repo port. JSON for data en
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | Liveness probe (T1.3). Returns `{ok: true, port, schema_version}` — `publish` uses it to confirm the server is up and on a compatible schema. |
+| `GET` | `/health` | Liveness probe (T1.3). Returns `{ok: true, port, schema_version, repo_root}` — `publish` uses it to confirm the server is up, on a compatible schema, AND serving this repo (a stale `.reviewdev/port` could otherwise point at another repo's server; `repo_root` added in T1.5). |
 | `GET` | `/pulls` | Index page — list open PRs (status, branch, title, updated_at, latest_revision_number). |
 | `GET` | `/pr/:id` | Redirects to `/pr/:id/rev/<latest>`. |
 | `GET` | `/pr/:id/rev/:n` | Pinned revision view (HTML, demo Concept 01). |

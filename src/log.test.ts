@@ -35,4 +35,13 @@ describe('logLine', () => {
       hunk_count: 3,
     });
   });
+
+  it('reserves ts and event — caller fields cannot clobber the envelope', () => {
+    const out = captureStream();
+    logLine(out, 'real.event', { event: 'spoofed', ts: 'spoofed', extra: 1 });
+    const obj = JSON.parse(out.out().trim());
+    expect(obj.event).toBe('real.event');
+    expect(obj.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(obj.extra).toBe(1);
+  });
 });

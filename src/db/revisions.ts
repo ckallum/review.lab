@@ -126,7 +126,8 @@ const NOW_SQL = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
  * - `hunks.pull_id` is the looked-up/created pull id, never trusted from the
  *   payload, so a hunk can't be filed under a different pull than its revision.
  * - `pulls.updated_at` is bumped on every write that touches the pull (a new
- *   revision counts) but NOT on a pure duplicate, which performs no write.
+ *   revision, or a duplicate that retargets the branch's base) but NOT on a
+ *   pure duplicate with an unchanged base, which performs no write.
  */
 export function createRevision(db: Database, input: RevisionInput): RevisionResult {
   // De-dup once, up front: `diff_hash` and the inserted hunk rows must agree on
@@ -136,7 +137,7 @@ export function createRevision(db: Database, input: RevisionInput): RevisionResu
 
   const tx = db.transaction((): RevisionResult => {
     const existing = db
-      .query<{ id: number }, [string]>('SELECT id FROM pulls WHERE branch = ?')
+      .query<{ id: number; base: string }, [string]>('SELECT id, base FROM pulls WHERE branch = ?')
       .get(input.branch);
 
     if (existing) {
@@ -149,6 +150,16 @@ export function createRevision(db: Database, input: RevisionInput): RevisionResu
         .get(pullId);
 
       if (latest && latest.diff_hash === hash) {
+        // Duplicate diff → no new revision. But the pull is still upserted by
+        // branch: if the branch was retargeted to a different base (same hunks,
+        // new base), sync `pulls.base` + `updated_at` so the metadata isn't
+        // stale. A same-base re-publish stays a true no-op.
+        if (existing.base !== input.base) {
+          db.run(`UPDATE pulls SET base = ?, updated_at = ${NOW_SQL} WHERE id = ?`, [
+            input.base,
+            pullId,
+          ]);
+        }
         return { pullId, revisionNumber: latest.number, created: false };
       }
 

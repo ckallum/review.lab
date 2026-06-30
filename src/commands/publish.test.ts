@@ -12,14 +12,37 @@ import type { GitRunner } from '../git.ts';
 const cliPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'cli.ts');
 
 describe('probeServer', () => {
-  it('is healthy when /health on 127.0.0.1 returns {ok:true}', async () => {
+  const REPO = '/work/repo';
+
+  it('is healthy when /health reports {ok:true} for this repo', async () => {
     const server = Bun.serve({
       port: 0,
       hostname: '127.0.0.1',
-      fetch: () => Response.json({ ok: true, port: 1, schema_version: 1 }),
+      fetch: () => Response.json({ ok: true, port: 1, schema_version: 1, repo_root: REPO }),
     });
     try {
-      expect(await probeServer(server.port!)).toEqual({ healthy: true });
+      expect(await probeServer(server.port!, REPO)).toEqual({ healthy: true });
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  // A healthy reviewdev answered, but for a DIFFERENT repo — a stale port file
+  // whose port got reused by another repo's serve. Must reject, not write this
+  // repo's diff into the other repo's DB.
+  it('reports wrong_repo when a healthy server serves another repo', async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () =>
+        Response.json({ ok: true, port: 1, schema_version: 1, repo_root: '/other/repo' }),
+    });
+    try {
+      expect(await probeServer(server.port!, REPO)).toEqual({
+        healthy: false,
+        reason: 'wrong_repo',
+        detail: '/other/repo',
+      });
     } finally {
       server.stop(true);
     }
@@ -34,7 +57,7 @@ describe('probeServer', () => {
       fetch: () => Response.json({ ok: false }),
     });
     try {
-      expect(await probeServer(server.port!)).toMatchObject({
+      expect(await probeServer(server.port!, REPO)).toMatchObject({
         healthy: false,
         reason: 'unhealthy',
       });
@@ -50,7 +73,7 @@ describe('probeServer', () => {
       fetch: () => new Response('boom', { status: 500 }),
     });
     try {
-      expect(await probeServer(server.port!)).toEqual({
+      expect(await probeServer(server.port!, REPO)).toEqual({
         healthy: false,
         reason: 'unhealthy',
         detail: 'HTTP 500',
@@ -67,7 +90,7 @@ describe('probeServer', () => {
       fetch: () => new Response('plain text', { status: 200 }),
     });
     try {
-      expect(await probeServer(server.port!)).toMatchObject({
+      expect(await probeServer(server.port!, REPO)).toMatchObject({
         healthy: false,
         reason: 'unhealthy',
       });
@@ -80,7 +103,7 @@ describe('probeServer', () => {
     const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('ok') });
     const port = server.port!;
     server.stop(true); // free it, then probe the now-dead port
-    expect(await probeServer(port)).toMatchObject({ healthy: false, reason: 'refused' });
+    expect(await probeServer(port, REPO)).toMatchObject({ healthy: false, reason: 'refused' });
   });
 
   it('reports timeout when the server is reachable but never answers', async () => {
@@ -92,7 +115,10 @@ describe('probeServer', () => {
       fetch: () => new Promise<Response>(() => {}),
     });
     try {
-      expect(await probeServer(server.port!)).toMatchObject({ healthy: false, reason: 'timeout' });
+      expect(await probeServer(server.port!, REPO)).toMatchObject({
+        healthy: false,
+        reason: 'timeout',
+      });
     } finally {
       server.stop(true);
     }

@@ -44,6 +44,11 @@ export function createApp(deps: {
   getPort: () => number;
   schemaVersion: number;
   db: Database;
+  // The repo this server is rooted at. Echoed by /health so `publish` can
+  // confirm a (possibly stale) `.reviewdev/port` points at THIS repo's server,
+  // not another repo's that happens to hold the same port — which would
+  // otherwise route this repo's write into the wrong DB.
+  repoRoot: string;
   // Diagnostic sink for an unexpected route throw (default no-op). `runServe`
   // wires it to the structured log so a failed write leaves a server-side trace
   // (message + stack + request identity) instead of vanishing into a bare 500.
@@ -51,7 +56,12 @@ export function createApp(deps: {
 }): Hono {
   const app = new Hono();
   app.get('/health', (c) =>
-    c.json({ ok: true, port: deps.getPort(), schema_version: deps.schemaVersion }),
+    c.json({
+      ok: true,
+      port: deps.getPort(),
+      schema_version: deps.schemaVersion,
+      repo_root: deps.repoRoot,
+    }),
   );
 
   // Upsert pull + create revision (T1.5). The CLI POSTs the resolved diff here;
@@ -231,6 +241,7 @@ export const runServe: CommandHandler = async (_args, io) => {
     getPort: () => boundPort,
     schemaVersion: version,
     db,
+    repoRoot,
     onError: (err, context) =>
       logLine(io.stdout, 'api.error', {
         message: err instanceof Error ? err.message : String(err),
