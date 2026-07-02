@@ -62,6 +62,44 @@ export function diffHash(hunkIds: readonly string[]): string {
   return createHash('sha256').update(sorted.join('\n')).digest('hex');
 }
 
+/** The code delta between two revisions, keyed by content-hash `id`
+ * (design.md § Hunk identity). Each bucket holds whole hunks, not just ids. */
+export interface RevisionDiff {
+  readonly added: readonly ParsedHunk[]; // in next, no matching id in prev
+  readonly removed: readonly ParsedHunk[]; // in prev, no matching id in next
+  readonly unchanged: readonly ParsedHunk[]; // id in both (kept from next)
+}
+
+/**
+ * The code delta between two revisions (design.md § Hunk identity, purpose 1),
+ * classified purely by content-hash `id`:
+ * - `added` — in `next`, no matching id in `prev`
+ * - `removed` — in `prev`, no matching id in `next`
+ * - `unchanged` — id in both, returned FROM `next` so the surviving hunk carries
+ *   revision N's line numbers (the diff view shows the current position)
+ *
+ * Order-independent (membership is by id, not position) so a reordered but
+ * otherwise identical revision reads as all-`unchanged`. A file rename changes
+ * `file_path`, hence the id, so it surfaces as the old hunk `removed` + the new
+ * one `added` — correct under content-addressing. `n=1` (no prior) is the
+ * caller's concern: pass `prev = []` and every hunk is `added`.
+ *
+ * Powers the revision diff view (T1.10) and the chapter-inheritance survivor
+ * hint (T2.2). Pure — no I/O, no DB; the exhaustive suite lives in hunks.test.ts.
+ */
+export function diffRevisions(
+  prev: readonly ParsedHunk[],
+  next: readonly ParsedHunk[],
+): RevisionDiff {
+  const prevIds = new Set(prev.map((h) => h.id));
+  const nextIds = new Set(next.map((h) => h.id));
+  return {
+    added: next.filter((h) => !prevIds.has(h.id)),
+    removed: prev.filter((h) => !nextIds.has(h.id)),
+    unchanged: next.filter((h) => prevIds.has(h.id)),
+  };
+}
+
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 /**
