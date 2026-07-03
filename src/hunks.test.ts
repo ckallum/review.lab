@@ -271,6 +271,17 @@ describe('diffRevisions — revision code delta', () => {
     expect(diffRevisions([], [])).toEqual({ added: [], removed: [], unchanged: [] });
   });
 
+  it('is total over duplicate ids — a repeated hunk collapses, no double-count', () => {
+    // Freshly-parsed hunks aren't deduped (the DB write path is); a caller that
+    // diffs them directly must not double-count a repeated id.
+    const one = parse(fileDiff('a.ts', '@@ -1 +1,2 @@', ' x', '+y'));
+    expect(one).toHaveLength(1);
+    const d = diffRevisions([...one, ...one], [...one, ...one]);
+    expect(d.unchanged).toHaveLength(1);
+    expect(d.added).toEqual([]);
+    expect(d.removed).toEqual([]);
+  });
+
   it('classifies a mixed revision: some unchanged, some removed, some added', () => {
     const keep = fileDiff('keep.ts', '@@ -1 +1,2 @@', ' k', '+kk');
     const gone = fileDiff('gone.ts', '@@ -1 +0,0 @@', '-g');

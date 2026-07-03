@@ -91,12 +91,24 @@ export function diffRevisions(
   prev: readonly ParsedHunk[],
   next: readonly ParsedHunk[],
 ): RevisionDiff {
-  const prevIds = new Set(prev.map((h) => h.id));
-  const nextIds = new Set(next.map((h) => h.id));
+  // Dedupe each side by id up front so the function is total over any input and
+  // never double-counts a bucket — a hunk id is a set member (matching
+  // `diffHash`'s own `new Set` and the write path's `dedupeById`). Stored
+  // revisions are already distinct-by-id, so this only guards a caller that
+  // diffs freshly-parsed hunks without a DB round-trip. The Map keeps one hunk
+  // per id; among identical-content hunks the survivor is arbitrary but
+  // equivalent under content-addressing.
+  const distinct = (hs: readonly ParsedHunk[]): ParsedHunk[] => [
+    ...new Map(hs.map((h) => [h.id, h])).values(),
+  ];
+  const p = distinct(prev);
+  const n = distinct(next);
+  const prevIds = new Set(p.map((h) => h.id));
+  const nextIds = new Set(n.map((h) => h.id));
   return {
-    added: next.filter((h) => !prevIds.has(h.id)),
-    removed: prev.filter((h) => !nextIds.has(h.id)),
-    unchanged: next.filter((h) => prevIds.has(h.id)),
+    added: n.filter((h) => !prevIds.has(h.id)),
+    removed: p.filter((h) => !nextIds.has(h.id)),
+    unchanged: n.filter((h) => prevIds.has(h.id)),
   };
 }
 
