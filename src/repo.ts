@@ -70,6 +70,17 @@ export function writePortFile(repoRoot: string, port: number): void {
 }
 
 /**
+ * The loopback origin for the per-repo server on `port`. Always `127.0.0.1`
+ * (the IPv4 address) — NOT the `localhost` hostname, which resolves to both
+ * `127.0.0.1` and `::1`; `serve` binds the IPv4 family specifically (design.md
+ * § Security). Centralised so the URL `publish` connects to and the review URL
+ * `serve` hands back can't drift from the address `serve` actually binds.
+ */
+export function serverOrigin(port: number): string {
+  return `http://127.0.0.1:${port}`;
+}
+
+/**
  * Read the bound port `serve` recorded, or null if the file is missing or not a
  * valid port. `publish` (T1.4) reads this to find the per-repo server — keeping
  * the trim/parse/validate in one place so both sides agree.

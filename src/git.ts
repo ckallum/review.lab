@@ -147,6 +147,14 @@ export function diffRange(git: GitRunner, baseSha: string): string {
   return git(['diff', `${baseSha}..HEAD`]);
 }
 
+/** The current branch name — the key the server upserts a `pull` under (T1.5).
+ * Returns the literal `HEAD` on a detached checkout (what `--abbrev-ref` emits
+ * rather than throwing); `resolveDiff` rejects that value so unrelated detached
+ * publishes can't collide on one shared "HEAD" pull. */
+export function currentBranch(git: GitRunner): string {
+  return git(['rev-parse', '--abbrev-ref', 'HEAD']);
+}
+
 /** True when the working tree has uncommitted changes (publish warns, uses HEAD). */
 export function workingTreeDirty(git: GitRunner): boolean {
   return git(['status', '--porcelain']).length > 0;

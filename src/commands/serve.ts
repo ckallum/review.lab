@@ -8,8 +8,15 @@ import {
   latestMigrationVersion,
   openDb,
 } from '../db/migrate.ts';
-import { dbPath, ensureReviewDevDir, resolveRepoRoot, writePortFile } from '../repo.ts';
+import {
+  dbPath,
+  ensureReviewDevDir,
+  resolveRepoRoot,
+  serverOrigin,
+  writePortFile,
+} from '../repo.ts';
 import { logLine } from '../log.ts';
+import { createRevision, parseRevisionInput } from '../db/revisions.ts';
 
 // Ports probed on startup, in order. design.md § Server lifecycle: "No daemon;
 // user runs `reviewdev serve` per repo." One repo per port keeps routing trivial.
@@ -30,13 +37,79 @@ export type ServeFn = (port: number, fetch: FetchHandler) => RunningServer;
 /**
  * Build the Hono app. `getPort` is read at request time, not bound here,
  * because the listening port isn't known until the probe picks one — the app
- * is constructed before `listenInRange` runs.
+ * is constructed before `listenInRange` runs. `db` is the single per-repo
+ * handle the publish-writer (`POST /api/pr`) writes through.
  */
-export function createApp(deps: { getPort: () => number; schemaVersion: number }): Hono {
+export function createApp(deps: {
+  getPort: () => number;
+  schemaVersion: number;
+  db: Database;
+  // The repo this server is rooted at. Echoed by /health so `publish` can
+  // confirm a (possibly stale) `.reviewdev/port` points at THIS repo's server,
+  // not another repo's that happens to hold the same port — which would
+  // otherwise route this repo's write into the wrong DB.
+  repoRoot: string;
+  // Diagnostic sink for an unexpected route throw (default no-op). `runServe`
+  // wires it to the structured log so a failed write leaves a server-side trace
+  // (message + stack + request identity) instead of vanishing into a bare 500.
+  onError?: (err: unknown, context?: Record<string, unknown>) => void;
+}): Hono {
   const app = new Hono();
   app.get('/health', (c) =>
-    c.json({ ok: true, port: deps.getPort(), schema_version: deps.schemaVersion }),
+    c.json({
+      ok: true,
+      port: deps.getPort(),
+      schema_version: deps.schemaVersion,
+      repo_root: deps.repoRoot,
+    }),
   );
+
+  // Upsert pull + create revision (T1.5). The CLI POSTs the resolved diff here;
+  // the server owns the write so revision numbering and duplicate detection
+  // happen against one DB handle.
+  app.post('/api/pr', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: 'request body must be JSON' }, 400);
+    }
+    let input;
+    try {
+      input = parseRevisionInput(raw);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+    // A throw here (SQLITE_BUSY, an unexpected constraint violation) is caught
+    // and logged WITH the request identity that's in scope — app.onError below
+    // can't see the parsed input, so a generic 500 there would be contextless.
+    let result;
+    try {
+      result = createRevision(deps.db, input);
+    } catch (err) {
+      deps.onError?.(err, {
+        branch: input.branch,
+        base_sha: input.baseSha,
+        head_sha: input.headSha,
+        hunk_count: input.hunks.length,
+      });
+      return c.json({ error: 'internal error creating revision' }, 500);
+    }
+    // The URL points at the resulting revision — identical for a fresh revision
+    // or a deduped re-publish, so `result.created` need not reach the client
+    // (the dedupe outcome is observable to the CLI via the unchanged URL).
+    const url = `${serverOrigin(deps.getPort())}/pr/${result.pullId}/rev/${result.revisionNumber}`;
+    return c.json({ pull_id: result.pullId, revision_number: result.revisionNumber, url });
+  });
+
+  // Last-resort handler for any OTHER unhandled route throw: log it (so the
+  // reason survives) and return a JSON body the CLI can surface, rather than
+  // Hono's default bare "500 Internal Server Error" with nothing logged.
+  app.onError((err, c) => {
+    deps.onError?.(err);
+    return c.json({ error: 'internal error handling request' }, 500);
+  });
+
   return app;
 }
 
@@ -143,7 +216,7 @@ export const runServe: CommandHandler = async (_args, io) => {
   try {
     const ran = applyMigrations(db, defaultMigrationsDir());
     version = currentVersion(db);
-    logLine(io, 'migrations.applied', { count: ran.length, schema_version: version });
+    logLine(io.stdout, 'migrations.applied', { count: ran.length, schema_version: version });
   } catch (err) {
     db.close();
     return fail(io, err);
@@ -164,7 +237,18 @@ export const runServe: CommandHandler = async (_args, io) => {
   }
 
   let boundPort = 0;
-  const app = createApp({ getPort: () => boundPort, schemaVersion: version });
+  const app = createApp({
+    getPort: () => boundPort,
+    schemaVersion: version,
+    db,
+    repoRoot,
+    onError: (err, context) =>
+      logLine(io.stdout, 'api.error', {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        ...context,
+      }),
+  });
 
   let server: RunningServer;
   try {
@@ -180,7 +264,7 @@ export const runServe: CommandHandler = async (_args, io) => {
   // and DB handle rather than leaking them via an unhandled rejection.
   try {
     writePortFile(repoRoot, boundPort);
-    logLine(io, 'serve.listening', {
+    logLine(io.stdout, 'serve.listening', {
       port: boundPort,
       repo_root: repoRoot,
       schema_version: version,
@@ -202,7 +286,7 @@ export const runServe: CommandHandler = async (_args, io) => {
     const shutdown = () => {
       if (shuttingDown) return;
       shuttingDown = true;
-      logLine(io, 'serve.shutdown', { port: boundPort });
+      logLine(io.stdout, 'serve.shutdown', { port: boundPort });
       server.stop();
       db.close();
       resolve(0);
