@@ -340,7 +340,7 @@ Reverses the flow. From the review surface, "Resume from step 3" copies a `claud
 If week 1–3 slips, drop in this order:
 1. **Confidence heuristic** (P1.7 — already deferred).
 2. **Decisions list UI** (P1.4 — data is emitted free with chapters; just hide the rail).
-3. **Multi-agent attribution** (P0.4 — "everyone not me" is "human"). *Now the MVP default (2026-06-26), not a contingency.*
+3. ~~**Multi-agent attribution**~~ (P0.4) — *already taken (2026-06-26): the `human` default is the MVP baseline; full multi-agent provenance is deferred to P2. Not a pending contingency.*
 4. **Ask the author** (P1.3 — most expensive P1).
 5. **Diff between arbitrary revision pairs** (P1.6 — only rev N vs N-1 in v1; this is already P1).
 

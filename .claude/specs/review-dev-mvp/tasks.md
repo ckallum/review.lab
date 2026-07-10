@@ -16,19 +16,19 @@ Each task is sized to be one logical commit / one PR. `/execute` SPEC mode shoul
 - [ ] **T1.8 — File-based chapter fallback.** Group hunks by top-level directory, secondary by extension. Emit 3–7 chapters with marker numbering. No LLM. Used when `ANTHROPIC_API_KEY` is unset.
 - [ ] **T1.9 — `/pr/:id` + `/pr/:id/rev/:n` routes.** Serve the demo HTML, hydrate from `/api/pr/:id/rev/:n` JSON. Latest revision is the default landing.
 - [ ] **T1.10 — Revision diff view (`/pr/:id/rev/:n/diff`).** Render code delta (hunk added/removed/unchanged badges) and chapter delta (added/dropped/inherited/regenerated). `n=1` falls back to single-revision view.
-- [ ] **T1.11 — SLA measurement spike.** Run chapter generation on 5 real 50-hunk PRs against Sonnet 4-7. Record TTFT + total-render-time. Commit the SLA number into [requirements.md](requirements.md#non-functional-requirements) NFR-2.
-  - **Addendum (2026-06-26):** depends on **T2.1** — it can't measure chapter generation before the Anthropic integration exists — so it runs at the *start of Phase 2*, not week 1, and blocks **T2.2–T2.8** (not "week 2"). Kept under the Phase 1 heading for ID stability; treat it as the first Phase-2 task.
 
 ## Phase 2 — LLM + Dogfood (Week 2)
 
-- [ ] **T2.1 — Anthropic API integration.** `src/llm/anthropic.ts` — streaming, JSON-mode `{chapters, decisions}`. Pin to `REVIEWDEV_MODEL ?? "claude-sonnet-4-7"`. Recorded-fixture interface for tests.
+- [ ] **T2.1 — Anthropic API integration.** `src/llm/anthropic.ts` — streaming, JSON-mode `{chapters, decisions}`. Pin to `REVIEWDEV_MODEL ?? "claude-sonnet-4-7"`. Recorded-fixture interface for tests. Owns the **oversized-diff guard**: a diff over the one-call budget (~150k tokens) hard-errors here (replacing the deferred chunker T2.3), pinned by a boundary test.
+- [ ] **T1.11 — SLA measurement spike.** Run chapter generation on 5 real 50-hunk PRs against Sonnet 4-7. Record TTFT + total-render-time. Commit the SLA number into [requirements.md](requirements.md#non-functional-requirements) NFR-2.
+  - **Addendum (2026-06-26):** sequenced here — right after **T2.1**, since it can't measure chapter generation before the Anthropic integration exists — and it blocks **T2.2–T2.8**. Moved out of Phase 1 (2026-07-10, PR #24 review) so `/execute` SPEC mode and the roadmap generator both treat it as a Phase-2 task in document order; the `T1.11` ID is kept for reference stability.
 - [ ] **T2.2 — Chapter-inheritance prompt extension.** Prompt receives prior revision's chapter titles + which of its hunks survived (by hash). Instructs reuse where every underlying hunk is unchanged. Sets `inherited_from_chapter_id` when the model reuses.
 - [ ] ~~**T2.3 — Chunked merge pass.** When input diff > ~150k tokens, chunk by file with size budget; run chapter calls in parallel; merge pass unifies chapters with global numbering. All hunks must be covered; markers must be unique.~~
   - **Deferred to P2 (2026-06-26):** the ~150k-token boundary sits far above the 50-hunk PRs a single author produces in a month of dogfood. In MVP, a diff over the one-call budget **hard-errors loudly** in `reviewdev publish` (one test pins the boundary) instead of chunking. Chunking returns in P2 if real diffs hit the ceiling.
 - [ ] ~~**T2.4 — Chunk-merge test suite (`chunk-merge.test.ts`).** 5+ recorded large-diff cases. Inheritance-hint correctness too. Must pass before T2.5 merges.~~
   - **Deferred to P2 (2026-06-26):** follows T2.3 out. Retired from the must-pass gate set (see [requirements.md](requirements.md#non-functional-requirements) NFR-6); only the hash+diff suite (T1.6) gates week 1. The inheritance-hint correctness it covered is exercised by T2.2's own tests.
 - [ ] **T2.5 — SSE `/api/pr/:id/rev/:n/generate`.** Stream chapters and decisions as they arrive. Browser hydrates skeleton from EventSource. Per-revision active stream registry (for diagnostics, not supersedes). Depends directly on **T2.1** (the T2.4 gate was removed — see addendum, 2026-06-26).
-- [ ] **T2.6 — Per-hunk attribution (reduced for MVP).** Generated-file detection via `.gitattributes linguist-generated` + builtin extensions (`*.snap`, `package-lock.json`, `dist/`); generated hunks excluded from chapter prompts. Every non-generated hunk is labelled `human`.
+- [ ] **T2.6 — Per-hunk attribution (reduced for MVP).** Generated-file detection matching FR-P0.4's set — `.gitattributes linguist-generated` + lockfiles + builtin patterns (`*.snap`, `dist/`); generated hunks excluded from chapter prompts. Every non-generated hunk is labelled `human`.
   - **Addendum (2026-06-26):** full provenance — `git blame --follow` per line, `Co-authored-by` trailer parsing (trailer beats blame), mixed-author majority-wins — is **deferred** until multi-agent platforms emit session metadata (P2.3 Lanes). For a single-author dogfood it collapses to a constant; the generated-file exclusion is load-bearing for FR-P0.4 and stays in MVP.
 - [ ] **T2.7 — Cost guardrails.** `usage` table writes per LLM call. Soft warning at $5/day. `REVIEWDEV_DAILY_CAP` hard cap that fails publish before the LLM call.
 - [ ] **T2.8 — Begin dogfooding.** First reviewdev PR after T2.5 goes through reviewdev. Log every "this is rough" moment into a follow-up sweep at end of week.
@@ -61,7 +61,7 @@ Each task is sized to be one logical commit / one PR. `/execute` SPEC mode shoul
 
 1. Confidence heuristic (P1.7, already deferred)
 2. Decisions list UI (T4.2)
-3. Multi-agent attribution (T2.6 — fall back to "everyone not me" = "human"). *Now the MVP default (2026-06-26), no longer a contingency — see T2.6.*
+3. ~~Multi-agent attribution (T2.6 — fall back to "everyone not me" = "human")~~ — *already taken (2026-06-26): the `human` default is the MVP baseline (FR-P0.4 / T2.6); full multi-agent provenance is deferred to P2. Nothing left to cut here.*
 4. Ask-the-author (T4.1)
 5. Diff between arbitrary revision pairs (P1.6 — only rev N vs N-1 in v1, already P1)
 
