@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>review.dev MVP — Execution Plan</title>
+<style>
+  :root{
+    --bg:#f7f7f5; --card:#ffffff; --ink:#1c1c1a; --muted:#65655e; --line:#e4e4df;
+    --blue:#2f6fed; --blue-bg:#eaf1fe; --teal:#0c8f80; --teal-bg:#e4f5f2;
+    --gray:#8a8a82; --gray-bg:#eeeeea; --amber:#b9791f; --amber-bg:#fbf0db;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 14px rgba(0,0,0,.05);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#16161a; --card:#1e1e24; --ink:#ececea; --muted:#a0a09a; --line:#33333b;
+      --blue:#6fa0ff; --blue-bg:#1c2740; --teal:#4fd0bf; --teal-bg:#123532;
+      --gray:#9a9a93; --gray-bg:#2a2a30; --amber:#e2ad5e; --amber-bg:#36280f;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.35);
+    }
+  }
+  @media print{
+    :root{
+      --bg:#fff; --card:#fff; --ink:#000; --muted:#444; --line:#bbb;
+      --blue-bg:#eef3ff; --teal-bg:#e6f6f3; --gray-bg:#f0f0ee; --amber-bg:#fbf1de;
+      --shadow:none;
+    }
+    .card,.chip,.mile,.pill{box-shadow:none}
+    a{color:inherit;text-decoration:none}
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       line-height:1.55;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 24px 80px}
+  header{margin-bottom:28px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0 0 14px;font-size:14px}
+  .stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .pill{font-size:12px;color:var(--muted);background:var(--card);border:1px solid var(--line);
+        border-radius:999px;padding:4px 11px}
+  .pill b{color:var(--ink);font-variant-numeric:tabular-nums}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+     margin:38px 0 14px;font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+        padding:18px 20px;box-shadow:var(--shadow);margin-bottom:14px}
+  /* milestone callouts */
+  .miles{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:640px){.miles{grid-template-columns:1fr}}
+  .mile{background:var(--amber-bg);border:1px solid color-mix(in srgb,var(--amber) 40%,transparent);
+        border-radius:14px;padding:16px 18px}
+  .mile .tag{font-size:12px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.05em}
+  .mile h3{margin:6px 0 4px;font-size:16px}
+  .mile p{margin:0;color:var(--muted);font-size:13.5px}
+  code{font-family:var(--mono);font-size:.88em;background:var(--gray-bg);
+       padding:1px 5px;border-radius:5px}
+  /* legend */
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin:0 0 14px;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:12px;height:12px;border-radius:4px;display:inline-block}
+  /* waves */
+  .wave{display:grid;grid-template-columns:78px 1fr;gap:14px;align-items:stretch;margin:0 0 10px}
+  .wlabel{display:flex;flex-direction:column;justify-content:center;gap:2px}
+  .wlabel .n{font-weight:700;font-size:14px}
+  .wlabel .k{font-size:11px;color:var(--muted)}
+  .panes{display:flex;flex-wrap:wrap;gap:10px}
+  .chip{flex:1 1 180px;min-width:170px;border-radius:11px;padding:11px 13px;
+        border:1px solid var(--line);background:var(--card)}
+  .chip .id{font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
+  .chip .d{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .chip.blue{background:var(--blue-bg);border-color:color-mix(in srgb,var(--blue) 35%,transparent)}
+  .chip.blue .id{color:var(--blue)}
+  .chip.teal{background:var(--teal-bg);border-color:color-mix(in srgb,var(--teal) 35%,transparent)}
+  .chip.teal .id{color:var(--teal)}
+  .chip.gray{background:var(--gray-bg)}
+  .chip.gray .id{color:var(--gray)}
+  .chip .note{display:inline-block;margin-top:7px;font-size:11px;color:var(--muted);
+              border-top:1px dashed var(--line);padding-top:6px}
+  .milebar{grid-column:1 / -1;background:var(--amber-bg);
+           border:1px solid color-mix(in srgb,var(--amber) 35%,transparent);
+           border-radius:9px;padding:7px 13px;font-size:12.5px;font-weight:600;color:var(--amber);
+           margin:2px 0 12px}
+  .seq{align-self:center;color:var(--muted);font-weight:700;font-size:13px;padding:0 2px}
+  /* generic content */
+  ul{margin:8px 0 0;padding-left:20px}
+  li{margin:7px 0}
+  li b{font-weight:650}
+  .rank{counter-reset:r;list-style:none;padding-left:0}
+  .rank li{position:relative;padding-left:34px;margin:11px 0}
+  .rank li::before{counter-increment:r;content:counter(r);position:absolute;left:0;top:1px;
+       width:22px;height:22px;border-radius:7px;background:var(--blue);color:#fff;
+       font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .warn{color:var(--amber);font-weight:600}
+  .moves{counter-reset:m;list-style:none;padding-left:0;margin:0}
+  .moves li{position:relative;padding-left:38px;margin:14px 0}
+  .moves li::before{counter-increment:m;content:counter(m);position:absolute;left:0;top:-2px;
+       width:26px;height:26px;border-radius:50%;border:2px solid var(--blue);color:var(--blue);
+       font-weight:700;display:flex;align-items:center;justify-content:center;font-size:13px}
+  footer{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
+  .crit{font-family:var(--mono);font-size:13px;background:var(--card);border:1px solid var(--line);
+        border-radius:9px;padding:10px 13px;color:var(--muted);overflow-x:auto}
+  .crit b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>review.dev MVP — Execution Plan</h1>
+  <p class="sub">Shortest path from <b>T1.4 merged</b> to a working loop: write code → <code>/publish-review</code> → browser → read story-shaped revision → approve / comment.</p>
+  <div class="stats">
+    <span class="pill"><b>30</b> of 34 tickets remaining</span>
+    <span class="pill">critical path <b>7</b> tickets</span>
+    <span class="pill"><b>31</b> agents · simplify + improve-architecture</span>
+    <span class="pill"><b>20/24</b> proposals upheld after adversarial verify</span>
+  </div>
+</header>
+
+<section>
+  <h2>The two honest milestones</h2>
+  <div class="miles">
+    <div class="mile">
+      <div class="tag">End of Wave 3</div>
+      <h3>Browser-readable revision</h3>
+      <p>write → publish → browser → <b>read</b> a story-shaped revision. T1.9b adds comment / approve write-back in the wave's tail.</p>
+    </div>
+    <div class="mile">
+      <div class="tag">End of Wave 4</div>
+      <h3>Full loop invokable</h3>
+      <p>the whole <code>/publish-review</code> loop runs end to end with <b>no API key</b> (file-based chapters).</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Execution order — waves</h2>
+  <div class="card">
+    <div class="legend">
+      <span><i class="sw" style="background:var(--blue)" aria-hidden="true"></i> critical path</span>
+      <span><i class="sw" style="background:var(--teal)" aria-hidden="true"></i> parallel lane</span>
+      <span><i class="sw" style="background:var(--gray)" aria-hidden="true"></i> deferred</span>
+      <span><i class="sw" style="background:var(--amber)" aria-hidden="true"></i> milestone</span>
+      <span style="margin-left:auto">panes side by side = run in parallel · <code>→</code> = sequential</span>
+    </div>
+
+    <div class="wave">
+      <div class="wlabel"><span class="n">Wave 1</span><span class="k">seam + gate</span></div>
+      <div class="panes">
+        <div class="chip blue"><div class="id">T1.5</div><div class="d">POST /api/pr + revision; the createApp route seam</div>
+          <span class="note">Exit gate: <code>src/api/types.ts</code> hydration + <code>diff_hash</code> contract</span></div>
+        <div class="chip blue"><div class="id">T1.6</div><div class="d">hash + revision-diff suite; property cases run on merged T1.4 now</div></div>
+      </div>
+    </div>
+
+    <div class="wave">
+      <div class="wlabel"><span class="n">Wave 2</span><span class="k">chapters + UI</span></div>
+      <div class="panes">
+        <div class="chip blue"><div class="id">T1.7</div><div class="d">demo HTML → web/index.html; establish web/panels/*.js</div></div>
+        <div class="chip blue"><div class="id">T1.8</div><div class="d">file-based chapters; owns the single chapter writer</div></div>
+        <div class="chip teal"><div class="id">T2.6</div><div class="d">attribution (reduced) — pulled forward; deps already met</div></div>
+      </div>
+    </div>
+
+    <div class="wave">
+      <div class="wlabel"><span class="n">Wave 3</span><span class="k">close the loop</span></div>
+      <div class="panes">
+        <div class="chip blue"><div class="id">T1.9a</div><div class="d">serve web + read JSON; /pr/:id → latest</div></div>
+        <div class="chip teal"><div class="id">T2.1</div><div class="d">Anthropic API + prompt; new files, no route conflict</div></div>
+        <span class="seq">→</span>
+        <div class="chip blue"><div class="id">T1.9b</div><div class="d">write-back: comments + chapter approve</div></div>
+      </div>
+    </div>
+    <div class="wave"><div class="milebar">Milestone — browser-readable revision (read works end to end)</div></div>
+
+    <div class="wave">
+      <div class="wlabel"><span class="n">Wave 4</span><span class="k">invoke</span></div>
+      <div class="panes">
+        <div class="chip blue" style="flex-basis:380px"><div class="id">T3.1 → T3.2</div><div class="d">merged: /publish-review SKILL.md + non-destructive bun install -g postinstall</div></div>
+      </div>
+    </div>
+    <div class="wave"><div class="milebar">Milestone — full /publish-review loop invokable, no API key</div></div>
+
+    <div class="wave">
+      <div class="wlabel"><span class="n">Wave 5</span><span class="k">LLM polish</span></div>
+      <div class="panes">
+        <div class="chip teal" style="flex-basis:330px"><div class="id">T1.11 → T2.2 → T2.5</div><div class="d">serial chain — shared src/llm/anthropic.ts. T2.8 dogfood after T2.5</div></div>
+        <div class="chip teal"><div class="id">T2.7</div><div class="d">cost guardrails (usage.ts parallel; hook lands last)</div></div>
+      </div>
+    </div>
+
+    <div class="wave">
+      <div class="wlabel"><span class="n">Wave 6</span><span class="k">ship + polish</span></div>
+      <div class="panes">
+        <div class="chip gray"><div class="id">T1.10 · T4.3</div><div class="d">deferred P0 — must return before MVP "done"</div></div>
+        <div class="chip gray"><div class="id">T4.1/2 · T3.3–7 · T5.x</div><div class="d">P1 / optional; schedule by value</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The two seams that make the parallelism real</h2>
+  <div class="card">
+    <p style="margin-top:0">Both are <b>hard Wave-1 exit gates</b>, not nice-to-haves. Without them the back half of the plan serializes through one constructor and one undefined data shape.</p>
+    <ul>
+      <li><b>Route-registration seam in <code>createApp</code>.</b> It registers only <code>/health</code> today; <b>six</b> tickets (T1.5, T1.9, T1.10, T2.5, T4.1, T4.3) need data routes. Thread a transaction-owning data layer in and register routes via per-feature <code>src/api/*.ts</code> modules — or every parallel pairing in Waves 3+ collapses.</li>
+      <li><b><code>src/api/types.ts</code> — the hydration contract.</b> T1.5 writes the POST, T1.7 hydrates HTML, T1.9 builds the GET JSON — three tickets, one shape that design.md never specs. Pin it in Wave 1 or T1.7's Wave-2 parallelism is <span class="warn">false</span> (it renders against a guess and gets reworked).</li>
+      <li><b>Frontend: <code>web/panels/*.js</code> loader.</b> Eight tickets touch the UI — a thin panel-loader convention lets each add a panel file + one import line instead of all colliding on <code>web/index.html</code>.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>Parallelism — and the false-parallelism traps</h2>
+  <div class="card">
+    <ul>
+      <li><b>T2.6 pulled forward to Wave 2.</b> Its only hard deps (T1.4, T1.5) are done by end of Wave 1, and it never touches <code>anthropic.ts</code> — running it early also lands the FR-P0.4 generated-file exclusion before T2.1/T2.2 need it.</li>
+      <li><span class="warn">Trap:</span> T1.9a → T1.9b is <b>sequential</b> (write-back depends on read); T3.1 → T3.2 is <b>sequential</b> (postinstall depends on the skill).</li>
+      <li><span class="warn">Trap:</span> the Wave-5 LLM chain <b>must serialize</b> — T1.11/T2.2/T2.5/T2.7 share <code>src/llm/anthropic.ts</code>. Only T2.6 and T2.7's non-hook work escape it.</li>
+      <li><span class="warn">Trap:</span> T3.6 / T4.2 / T4.3 are <b>not</b> one parallel wave — independent backends, but they unblock at very different times.</li>
+      <li><span class="warn">Trap:</span> T1.6's revision-diff fixtures partially serialize behind T1.5 (they need the <code>diff_hash</code> interface) — its 30+ hash-property cases run now; the 10+ diff fixtures wait on the pinned contract.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>Speed-of-execution levers (ranked)</h2>
+  <div class="card">
+    <ol class="rank">
+      <li><b>Demo file-based first; push the whole Phase-2 LLM column off the first-demo path</b> (~8 tickets). T1.8 gives story-shaped chapters with <code>ANTHROPIC_API_KEY</code> unset — the spec's designed fallback. De-risks the loop before paying any LLM latency. <i>Tradeoff:</i> chapters are structural, not narrative.</li>
+      <li><b>Defer the Session Bay cluster (T3.3–T3.7)</b> — ~a full week, all P1, none on the path. <span class="warn">Caveat:</span> T3.3 also gates T4.1 ask-the-author.</li>
+      <li><b>Cut the LLM chunker T2.3 + its gate T2.4</b>; repoint T2.5 directly at T2.1. Replace the 150k-token path with a loud "diff too large" error + one test.</li>
+      <li><b>Merge T3.1+T3.2 and pull to Wave 4</b> — moves the <code>/publish-review</code> entry point early. Does not move dogfooding (T2.8 is hard-gated on T2.5).</li>
+      <li><b>Reduce T2.6 from L to S</b> — generated-file detection + blanket "human" label; drop blame/trailer/majority-wins for a single-author tool.</li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <h2>General findings &amp; owed spec amendments</h2>
+  <div class="card">
+    <ul>
+      <li><b>T1.11 is mis-numbered into Phase 1.</b> <code>tasks.md:19</code> and <code>SPEC.md:314</code> place the SLA spike in week 1, but it hard-depends on T2.1 (Phase 2). Move it; reword "Block week 2" → "Block T2.2–T2.8."</li>
+      <li><b>Cutting T2.4 contradicts NFR-6</b> (named in requirements.md, design.md, SPEC.md as must-pass-before-week-1). Retire it from the gate set in the same change — don't cut silently.</li>
+      <li><b>T1.9 silently owns the loop's persist step.</b> Its wording says only "serve HTML + hydrate JSON," but <code>POST .../comments</code> and <code>POST .../chapters/:cid/approve</code> (P0.8) land there by elimination. Make it explicit; record the T1.9a/T1.9b split.</li>
+      <li><b>Two deferred-P0s, not free cuts:</b> T1.10 (rev-diff, P0.9) and T4.3 (comment-counts pill, P0.8) must return before MVP "done" — keep them distinct from truly-optional P1 work in Wave 6.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>Next 3 moves (T1.4 just merged)</h2>
+  <div class="card">
+    <ol class="moves">
+      <li><b>Spawn Wave 1: T1.5 ‖ T1.6.</b> In T1.5's first commit, land the <code>createApp</code> data-route seam + <code>src/api/types.ts</code> before any route logic. In T1.6's pane, write the hash-property cases immediately; hold diff fixtures for the pinned interface.</li>
+      <li><b>One <code>/ship pr</code> spec-amendment change</b> before Wave 5: cut T2.3/T2.4 + repoint T2.5, fix T1.11's placement in tasks.md + SPEC.md, reduce T2.6's scope wording — grep every affected token across all four spec docs first.</li>
+      <li><b>Sharpen T1.9's scope in tasks.md now</b> (while upstream): absorb the two POST endpoints, record the a/b split, re-point downstream consumers at T1.9a.</li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <h2>How this was produced</h2>
+  <p class="crit">Workflow <b>roadmap-execution-analysis</b> — 5 phases: map the 34-ticket dependency graph → 4 parallel lenses (<b>simplify</b>, <b>improve-architecture</b>, <b>critical-path</b>, <b>parallelism</b>) → adversarially verify each of 24 unique proposals against the real graph (<b>20 upheld</b>) → synthesize → a final critic pass that caught <b>6 defects</b> (missed T2.6 parallelism, the two seam gates, the milestone-honesty split, deferred-P0 framing) — all folded in above.</p>
+</section>
+
+<footer>
+  Point-in-time analysis snapshot from the review.dev MVP spec (SPEC.md + .claude/specs/review-dev-mvp), taken just after T1.4 merged. Unlike docs/roadmap.html this page is hand-authored, not regenerated from tasks.md — re-run the analysis to refresh it. Critical path: T1.5 → T1.6 → T1.7 → T1.8 → T1.9 → T3.1 → T3.2.
+</footer>
+
+</div>
+</body>
+</html>
