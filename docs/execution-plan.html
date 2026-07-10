@@ -21,6 +21,15 @@
       --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.35);
     }
   }
+  @media print{
+    :root{
+      --bg:#fff; --card:#fff; --ink:#000; --muted:#444; --line:#bbb;
+      --blue-bg:#eef3ff; --teal-bg:#e6f6f3; --gray-bg:#f0f0ee; --amber-bg:#fbf1de;
+      --shadow:none;
+    }
+    .card,.chip,.mile,.pill{box-shadow:none}
+    a{color:inherit;text-decoration:none}
+  }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
@@ -102,7 +111,7 @@
   <h1>review.dev MVP — Execution Plan</h1>
   <p class="sub">Shortest path from <b>T1.4 merged</b> to a working loop: write code → <code>/publish-review</code> → browser → read story-shaped revision → approve / comment.</p>
   <div class="stats">
-    <span class="pill"><b>30</b> tickets remaining</span>
+    <span class="pill"><b>30</b> of 34 tickets remaining</span>
     <span class="pill">critical path <b>7</b> tickets</span>
     <span class="pill"><b>31</b> agents · simplify + improve-architecture</span>
     <span class="pill"><b>20/24</b> proposals upheld after adversarial verify</span>
@@ -129,10 +138,10 @@
   <h2>Execution order — waves</h2>
   <div class="card">
     <div class="legend">
-      <span><i class="sw" style="background:var(--blue)"></i> critical path</span>
-      <span><i class="sw" style="background:var(--teal)"></i> parallel lane</span>
-      <span><i class="sw" style="background:var(--gray)"></i> deferred</span>
-      <span><i class="sw" style="background:var(--amber)"></i> milestone</span>
+      <span><i class="sw" style="background:var(--blue)" aria-hidden="true"></i> critical path</span>
+      <span><i class="sw" style="background:var(--teal)" aria-hidden="true"></i> parallel lane</span>
+      <span><i class="sw" style="background:var(--gray)" aria-hidden="true"></i> deferred</span>
+      <span><i class="sw" style="background:var(--amber)" aria-hidden="true"></i> milestone</span>
       <span style="margin-left:auto">panes side by side = run in parallel · <code>→</code> = sequential</span>
     </div>
 
@@ -246,7 +255,7 @@
   <div class="card">
     <ol class="moves">
       <li><b>Spawn Wave 1: T1.5 ‖ T1.6.</b> In T1.5's first commit, land the <code>createApp</code> data-route seam + <code>src/api/types.ts</code> before any route logic. In T1.6's pane, write the hash-property cases immediately; hold diff fixtures for the pinned interface.</li>
-      <li><b>One <code>/ship pr</code> spec-amendment change</b> before Wave 5: cut T2.3/T2.4 + repoint T2.5, fix T1.11's placement in tasks.md + SPEC.md, reduce T2.6's scope wording — grep all four spec docs per token first.</li>
+      <li><b>One <code>/ship pr</code> spec-amendment change</b> before Wave 5: cut T2.3/T2.4 + repoint T2.5, fix T1.11's placement in tasks.md + SPEC.md, reduce T2.6's scope wording — grep every affected token across all four spec docs first.</li>
       <li><b>Sharpen T1.9's scope in tasks.md now</b> (while upstream): absorb the two POST endpoints, record the a/b split, re-point downstream consumers at T1.9a.</li>
     </ol>
   </div>
