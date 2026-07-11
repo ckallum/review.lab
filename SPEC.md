@@ -133,6 +133,8 @@ The diff view does *not* show comment additions — comments are scoped to a rev
 
 ### Chunking strategy for large diffs
 
+> **Deferred to P2 (2026-06-26).** For MVP a diff that exceeds the one-call budget (~150k input tokens) makes `reviewdev publish` **hard-error** with a clear message instead of chunking (one test pins the boundary). That ceiling sits far above the 50-hunk PRs a single author produces in a month of dogfood. The file-boundary chunking design below is preserved as the P2 plan for when real diffs hit it.
+
 When the diff exceeds ~150k input tokens, the chapter prompt is split:
 
 - **Boundary.** Split by file. A single file is never split across chunks — same boundary as `git diff`'s file-by-file output. Preserves per-file context for the model.
@@ -187,8 +189,8 @@ Each LLM call records cost + token counts in the `usage` table. Before any LLM c
 |---|---|---|
 | **P0.1** | **Claude Code skill** | A `/publish-review` slash command invokes `reviewdev publish --cwd "$(pwd)" --session "$CLAUDE_SESSION_ID"`. Skill installed at `~/.claude/skills/review-dev/SKILL.md` by `bun install -g reviewdev`'s postinstall. If the file exists, postinstall skips and prints the manual override command. No `install-skill --force` subcommand. |
 | **P0.2** | **CLI: `reviewdev publish`** | Resolves diff per §Diff source. Uploads to the per-repo server, which creates a new revision (or returns the existing URL if `diff_hash` matches latest). Returns a URL within 2s; rendered chapters complete within the measured SLA on a 50-hunk PR via SSE. Works standalone with no `$CLAUDE_SESSION_ID`; session-dependent features degrade gracefully. |
-| **P0.3** | **Chapter generation + decisions** | Single Anthropic API call (`claude-sonnet-4-7`) outputs `{chapters: [3-7], decisions: [...]}`. Prompt receives the full diff content (chunked above ~150k tokens), the prior revision's chapter titles + which hunks survived, with instructions to reuse where unchanged. Streams via SSE. Falls back to file-based grouping (no decisions) if `ANTHROPIC_API_KEY` is unset. |
-| **P0.4** | **Per-hunk attribution** | `git blame --follow` + commit-trailer parsing (prefer trailer over blame author). Mixed-author hunks: majority-line wins. Generated files (linguist-generated, lockfiles, `*.snap`, `dist/`) tagged `generated`, excluded from chapter prompts. Deleted-only hunks blame the prior commit, render with `kind=del` styling. |
+| **P0.3** | **Chapter generation + decisions** | Single Anthropic API call (`claude-sonnet-4-7`) outputs `{chapters: [3-7], decisions: [...]}`. Prompt receives the full diff content (**hard-errors above ~150k tokens — chunking deferred to P2**), the prior revision's chapter titles + which hunks survived, with instructions to reuse where unchanged. Streams via SSE. Falls back to file-based grouping (no decisions) if `ANTHROPIC_API_KEY` is unset. |
+| **P0.4** | **Per-hunk attribution** (reduced for MVP) | Generated files (linguist-generated, lockfiles, `*.snap`, `dist/`) tagged `generated`, excluded from chapter prompts. Deleted-only hunks render with `kind=del` styling. Non-generated hunks labelled `human`. Full provenance (`git blame --follow` + `Co-authored-by` trailer, trailer-beats-blame, majority-wins) deferred to P2 / Lanes (2026-06-26). |
 | **P0.5** | **Confidence display (week 1: stub)** | All hunks render at `confidence=high` in week 1. Column exists in the schema. UI renders low/medium/high words with red/amber/green colour bands. Heuristic deferred to P1.7 if dogfood reveals the gap. |
 | **P0.6** | **Concept 01 view** | Browser renders the imported demo HTML landed in the repo at `web/index.html` (Concept 01 only — import source-of-truth note lives in `tasks.md` T1.7), data-driven from `/api/pr/:id/rev/:n`. Title, chapter sidebar, marker headings, file-pill spans, hunks with attribution chips and confidence bands. Skeleton renders before chapters stream in. Numeric `conf 0.94` replaced with word-band display. Concepts 02–06 stripped from the import. |
 | **P0.7** | **GitHub link out** | If `gh pr view --json url` returns a URL, display "View on GitHub" in the header. Otherwise show the branch name. `gh` missing/unauthed swallowed silently. |
@@ -223,12 +225,12 @@ Each LLM call records cost + token counts in the `usage` table. Before any LLM c
 
 ## Test Strategy
 
-Two fixture-based suites land before week 1 ships. (Down from three — comment-migration tests are gone with the simplification.)
+One fixture-based suite lands before week 1 ships: `hunks.test.ts`. *(Amended 2026-06-26: `chunk-merge.test.ts` deferred to P2 with the chunker — see §Chunking strategy. Was two suites, itself down from three after the comment-migration simplification.)*
 
 | Suite | Covers | Style | Fixtures |
 |---|---|---|---|
 | `hunks.test.ts` | Hash function + revision diff correctness | Property tests over `(file_path, content) → hash`. Fixture cases: whitespace edit, line added in middle, line reordered, file renamed. Verify `rev N hunks vs rev N-1 hunks` produces correct added/removed/unchanged sets. | Synthetic diffs |
-| `chunk-merge.test.ts` | Chunked LLM merge correctness | Mocked LLM responses; assert all hunks covered, markers unique, chapter count 3–7, decisions globally coherent. Also verify chapter-inheritance hint correctness: when prior chapters are passed in and all hunks survive, the LLM is given enough context to reuse. | Recorded streaming responses |
+| ~~`chunk-merge.test.ts`~~ *(deferred to P2)* | Chunked LLM merge correctness — returns with the chunker (2026-06-26). The inheritance-hint correctness it covered is exercised by T2.2's tests in MVP. | — | — |
 
 **LLM mocking discipline.** All LLM calls in tests go through a recorded-fixture interface. Real recordings curated from dogfood. CI never hits the live API.
 
@@ -237,7 +239,7 @@ Two fixture-based suites land before week 1 ships. (Down from three — comment-
 **Tests that must pass in week 1 before any code ships:**
 1. Hash function: 30+ property cases.
 2. Revision diffing: 10+ cases covering hunk-add, hunk-remove, file-rename, ordering changes.
-3. Chunked merge: 5+ recorded large-diff cases including the inheritance-hint prompt extension.
+3. ~~Chunked merge: 5+ recorded large-diff cases including the inheritance-hint prompt extension.~~ *(Deferred to P2 with the chunker, 2026-06-26. MVP covers the large-diff path with a single hard-error boundary test.)*
 
 ---
 
@@ -311,9 +313,9 @@ Reverses the flow. From the review surface, "Resume from step 3" copies a `claud
 ---
 
 ## Timeline & Phasing
-**Week 1 — bootstrap.** `reviewdev serve` (Hono on Bun) + SQLite schema with numbered migrations + WAL + `reviewdev publish` writing revisions with file-based chapters. Demo HTML imported (Concept 01 only) and wired to `/api/pr/:id/rev/:n`. Revision diff view (P0.9) implemented. The two test suites (hash+diff, chunk-merge) land before code merges. **Measurement spike:** run chapter generation on 5 real 50-hunk PRs with Sonnet 4-7, record TTFT + total-render-time, commit to an SLA number.
+**Week 1 — bootstrap.** `reviewdev serve` (Hono on Bun) + SQLite schema with numbered migrations + WAL + `reviewdev publish` writing revisions with file-based chapters. Demo HTML imported (Concept 01 only) and wired to `/api/pr/:id/rev/:n`. Revision diff view (P0.9) implemented. The hash+diff test suite lands before code merges.
 
-**Week 2 — chapter generation + dogfood.** Wire the combined chapters+decisions API call with streaming and the chapter-inheritance prompt extension. Attribution via `git blame --follow` + trailer parsing. **First dogfood:** reviewdev's own PRs go through reviewdev starting now.
+**Week 2 — chapter generation + dogfood.** Wire the combined chapters+decisions API call with streaming and the chapter-inheritance prompt extension. **Measurement spike (runs first, needs T2.1):** chapter generation on 5 real 50-hunk PRs with Sonnet 4-7 — record TTFT + total-render-time, commit the SLA number (NFR-2); it gates T2.2–T2.8. MVP attribution is generated-file detection + a `human` default (full `git blame`/trailer provenance deferred to P2). **First dogfood:** reviewdev's own PRs go through reviewdev starting now.
 
 **Week 3 — skill + session bay.** Skill triggers the CLI; postinstall lays it down. Transcript reading + sub-agent following. Session bay with `cwd`-based correlation. Compacted-session handling.
 
@@ -329,8 +331,8 @@ Reverses the flow. From the review surface, "Resume from step 3" copies a `claud
 - **Server:** Bun + Hono. Single binary per repo, fast cold start.
 - **DB:** SQLite via `bun:sqlite`, WAL mode, `BEGIN IMMEDIATE` for publish writes. Numbered SQL migrations in `migrations/`, applied on `reviewdev serve` start.
 - **Frontend:** Imported `review-dev-demo.html` (Concept 01 only), parameterised to fetch from `/api/pr/:id/rev/:n`. Streaming via EventSource/SSE. Vanilla JS.
-- **LLM:** Anthropic API direct. Single combined call emitting `{chapters, decisions}` via streaming JSON. Chunking + merge pass for diffs > ~150k tokens. Chapter-inheritance hint as a prompt extension.
-- **Testing:** Vitest. Two fixture-based suites in week 1.
+- **LLM:** Anthropic API direct. Single combined call emitting `{chapters, decisions}` via streaming JSON. Diffs over the one-call budget (~150k tokens) hard-error in MVP (chunking + merge pass deferred to P2). Chapter-inheritance hint as a prompt extension.
+- **Testing:** Vitest. One fixture-based suite (hash+diff) in week 1; chunk-merge deferred to P2.
 - **Distribution:** `bun install -g reviewdev`. Postinstall lays down the skill (non-destructive).
 - **Telemetry:** None. The `usage` table is local-only for cost guardrails.
 
@@ -338,7 +340,7 @@ Reverses the flow. From the review surface, "Resume from step 3" copies a `claud
 If week 1–3 slips, drop in this order:
 1. **Confidence heuristic** (P1.7 — already deferred).
 2. **Decisions list UI** (P1.4 — data is emitted free with chapters; just hide the rail).
-3. **Multi-agent attribution** (P0.4 — "everyone not me" is "human").
+3. ~~**Multi-agent attribution**~~ (P0.4) — *already taken (2026-06-26): the `human` default is the MVP baseline; full multi-agent provenance is deferred to P2. Not a pending contingency.*
 4. **Ask the author** (P1.3 — most expensive P1).
 5. **Diff between arbitrary revision pairs** (P1.6 — only rev N vs N-1 in v1; this is already P1).
 
