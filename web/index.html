@@ -1074,8 +1074,10 @@
         // string, so both the week-1 stub (all "high") and richer data map cleanly.
         function confidenceBand(c) {
           if (typeof c === 'number') return c >= 0.8 ? 'high' : c >= 0.5 ? 'medium' : 'low';
-          const b = String(c || 'high').toLowerCase();
-          return b === 'high' || b === 'medium' || b === 'low' ? b : 'high';
+          const b = String(c ?? '').toLowerCase();
+          // Unknown/missing confidence falls to the low (red) end, not high — on a
+          // review trust surface, garbage must not render as "fully vetted".
+          return b === 'high' || b === 'medium' || b === 'low' ? b : 'low';
         }
 
         const announce = (msg) => {
@@ -1439,6 +1441,23 @@
           helpTrigger.setAttribute('aria-expanded', 'false');
           if (lastFocus) lastFocus.focus();
         }
+        // Focus trap: aria-modal="true" promises focus can't leave the open dialog.
+        helpDialog.addEventListener('keydown', (e) => {
+          if (e.key !== 'Tab' || !helpDialog.classList.contains('open')) return;
+          const focusable = helpDialog.querySelectorAll(
+            'button, [href], input, [tabindex]:not([tabindex="-1"])',
+          );
+          if (!focusable.length) return;
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        });
         helpTrigger.addEventListener('click', openHelp);
         helpClose.addEventListener('click', closeHelp);
         helpDialog.addEventListener('click', (e) => {
@@ -1460,21 +1479,34 @@
           const m = location.pathname.match(/\/pr\/([^/]+)\/rev\/([^/]+)/);
           return m ? '/api/pr/' + m[1] + '/rev/' + m[2] : null;
         }
+        const FETCH_TIMEOUT_MS = 8000;
         async function boot() {
           let data = window.__REVISION__ || null;
           if (!data) {
             const p = revisionApiPath();
             if (p) {
-              // A matched path means real data was expected — a failure here is
-              // not the standalone case, so log it rather than swallow it. The
-              // user-facing error state ships with the serving route (T1.9);
-              // until then we still fall back to the demo so the page isn't blank.
+              // A matched path means real data was expected, so:
+              // - a failure is logged, not swallowed (the standalone case has no path);
+              // - a hung request is aborted after FETCH_TIMEOUT_MS so the fallback fires;
+              // - the user-facing error state ships with the serving route (T1.9).
+              // Until then we still fall back to the demo so the page isn't blank.
+              const ac = new AbortController();
+              const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
               try {
-                const r = await fetch(p, { headers: { accept: 'application/json' } });
-                if (r.ok) data = await r.json();
-                else console.error('review.dev: revision fetch failed —', r.status, p);
+                const r = await fetch(p, {
+                  headers: { accept: 'application/json' },
+                  signal: ac.signal,
+                });
+                if (!r.ok) console.error('review.dev: revision fetch failed —', r.status, p);
+                else {
+                  const body = await r.json();
+                  if (body) data = body;
+                  else console.error('review.dev: revision fetch returned an empty body —', p);
+                }
               } catch (err) {
                 console.error('review.dev: revision fetch error —', p, err);
+              } finally {
+                clearTimeout(timer);
               }
             }
           }

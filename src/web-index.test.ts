@@ -31,19 +31,35 @@ describe('web/index.html — T1.7 demo import', () => {
 
   it('maps confidence values to the correct band per FR-P0.5 thresholds', () => {
     // Evaluate the page's own confidenceBand so a threshold drift in the HTML
-    // (not a copy of it here) is what breaks this test.
-    const src = html.match(/function confidenceBand\(c\)\s*\{[\s\S]*?\n\s*\}/);
-    expect(src, 'confidenceBand not found in web/index.html').not.toBeNull();
-    const band = new Function(`${src![0]}; return confidenceBand;`)() as (
-      c: number | string,
+    // (not a copy of it here) is what breaks this test. Extract by brace-counting
+    // from the declaration to its matching close, so a future nested block in the
+    // function body can't truncate the source and throw a confusing syntax error.
+    const start = html.indexOf('function confidenceBand');
+    expect(start, 'confidenceBand not found in web/index.html').toBeGreaterThan(-1);
+    const open = html.indexOf('{', start);
+    let depth = 0;
+    let end = open;
+    for (let i = open; i < html.length; i++) {
+      if (html[i] === '{') depth++;
+      else if (html[i] === '}' && --depth === 0) {
+        end = i;
+        break;
+      }
+    }
+    const band = new Function(`${html.slice(start, end + 1)}; return confidenceBand;`)() as (
+      c: number | string | null | undefined,
     ) => string;
     // Numeric inputs cross each threshold (FR-P0.5): green/amber/red.
     expect(band(0.94)).toBe('high');
     expect(band(0.71)).toBe('medium');
     expect(band(0.49)).toBe('low');
-    // String inputs pass through; the week-1 stub sends "high" for every hunk.
+    // Valid string bands pass through; the week-1 stub sends "high" for every hunk.
     expect(band('high')).toBe('high');
-    expect(band('bogus')).toBe('high');
+    // Unknown/missing confidence falls to the safe (low) end, never "high".
+    expect(band('bogus')).toBe('low');
+    expect(band('')).toBe('low');
+    expect(band(null)).toBe('low');
+    expect(band(undefined)).toBe('low');
   });
 
   it('is data-driven — renders from a revision object, not hardcoded content', () => {
