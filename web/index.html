@@ -1,0 +1,1522 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>review.dev — pull request</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #f2ebdc;
+        --paper: #faf6ec;
+        --paper-2: #fffefa;
+        --soft: #f0e9d7;
+        --rail: #ece3cf;
+        --border: #ddd2b7;
+        --border-soft: #e8dfc9;
+        --ink: #1a1815;
+        --ink-2: #2d2920;
+        --ink-3: #4a453b;
+        --muted: #786b57;
+        --muted-2: #998d7a;
+        --rust: #b8593c;
+        --rust-deep: #9a4628;
+        --rust-soft: #ead4c2;
+        --rust-tint: #f4e0d2;
+        --sage: #5c7559;
+        --sage-soft: #c9d4bd;
+        --sage-tint: #e0e8d2;
+        --olive: #7a6e38;
+        --amber: #a66e2c;
+        --amber-soft: #e5cfa0;
+        --amber-tint: #f0ddb6;
+        --serif:
+          'Tiempos Text', 'Iowan Old Style', 'Source Serif Pro', 'Source Serif 4', Georgia, serif;
+        --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: var(--serif);
+        font-size: 16.5px;
+        line-height: 1.65;
+        color: var(--ink);
+        background: var(--page);
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+      .shell {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 56px 32px 120px;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      .skip-link {
+        position: absolute;
+        left: -10000px;
+        top: 12px;
+        background: var(--ink);
+        color: var(--paper-2);
+        padding: 10px 16px;
+        border-radius: 4px;
+        z-index: 300;
+        font-family: var(--mono);
+        font-size: 12px;
+        text-decoration: none;
+        letter-spacing: 0.06em;
+      }
+      .skip-link:focus {
+        left: 16px;
+        outline: 2px solid var(--rust);
+        outline-offset: 2px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+
+      a:focus-visible,
+      [tabindex]:focus-visible,
+      input:focus-visible,
+      .toc-item:focus-visible,
+      .chapter-actions button:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--rust);
+        outline-offset: 3px;
+        border-radius: 3px;
+      }
+      input:focus-visible {
+        border-radius: 4px;
+      }
+
+      .help-trigger {
+        position: fixed;
+        bottom: 22px;
+        right: 22px;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--ink);
+        color: var(--paper-2);
+        border: 0;
+        font-family: var(--mono);
+        font-size: 16px;
+        cursor: pointer;
+        z-index: 90;
+        box-shadow: 0 4px 16px rgba(26, 24, 21, 0.18);
+      }
+      .help-trigger:hover {
+        background: var(--rust);
+      }
+      .help-dialog {
+        position: fixed;
+        inset: 0;
+        background: rgba(26, 24, 21, 0.35);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        padding: 16px;
+      }
+      .help-dialog.open {
+        display: flex;
+      }
+      .help-dialog .panel {
+        background: var(--paper-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 24px 28px;
+        max-width: 420px;
+        width: 100%;
+        box-shadow: 0 20px 60px rgba(26, 24, 21, 0.2);
+      }
+      .help-dialog h2 {
+        font-family: var(--serif);
+        font-weight: 400;
+        font-size: 22px;
+        margin: 0 0 4px;
+        color: var(--ink);
+      }
+      .help-dialog .sub {
+        font-size: 13px;
+        color: var(--muted);
+        margin: 0 0 18px;
+        font-style: italic;
+      }
+      .help-dialog dl {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px 20px;
+        margin: 0;
+      }
+      .help-dialog dt {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--ink-2);
+      }
+      .help-dialog dt kbd {
+        background: var(--soft);
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 3px;
+        padding: 2px 7px;
+        font-size: 11px;
+        color: var(--ink);
+        margin-right: 3px;
+      }
+      .help-dialog dd {
+        margin: 0;
+        font-size: 14px;
+        color: var(--ink-2);
+        align-self: center;
+      }
+      .help-dialog .close {
+        display: block;
+        margin: 22px 0 0;
+        background: transparent;
+        border: 0;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        cursor: pointer;
+        text-transform: uppercase;
+      }
+      .help-dialog .close:hover {
+        color: var(--rust);
+      }
+
+      .page {
+        display: block;
+      }
+      .page > .pre-label {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        letter-spacing: 0.18em;
+        color: var(--rust);
+        text-transform: uppercase;
+      }
+      .page > h1 {
+        font-family: var(--serif);
+        font-weight: 400;
+        font-size: 52px;
+        line-height: 1.05;
+        letter-spacing: -0.012em;
+        margin: 18px 0 24px;
+        max-width: 22ch;
+        color: var(--ink);
+      }
+      .page > h1 em {
+        font-style: italic;
+        color: var(--rust);
+      }
+      .page > p.lede {
+        font-size: 19px;
+        line-height: 1.55;
+        color: var(--ink-2);
+        max-width: 60ch;
+        margin: 0 0 48px;
+      }
+
+      .browser {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow:
+          0 1px 0 rgba(26, 24, 21, 0.02),
+          0 12px 36px rgba(26, 24, 21, 0.06);
+        margin: 0 0 24px;
+      }
+      .chrome {
+        background: var(--rail);
+        border-bottom: 1px solid var(--border);
+        padding: 12px 16px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .chrome .dots {
+        display: flex;
+        gap: 7px;
+        padding-right: 10px;
+      }
+      .chrome .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+      }
+      .chrome .dot.r {
+        background: #d89890;
+      }
+      .chrome .dot.y {
+        background: #d9c188;
+      }
+      .chrome .dot.g {
+        background: #a8bfa0;
+      }
+      .chrome .url {
+        flex: 1;
+        background: var(--paper-2);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 6px 14px;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .avatar {
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--serif);
+        font-size: 12px;
+        font-weight: 500;
+        color: #fff;
+      }
+      .avatar.claude {
+        background: var(--rust);
+      }
+      .avatar.codex {
+        background: var(--olive);
+      }
+      .avatar.skeptic {
+        background: #6b5044;
+      }
+      .avatar.muted {
+        background: var(--muted);
+      }
+      .avatar.sage {
+        background: var(--sage);
+      }
+      .avatar.amber {
+        background: var(--amber);
+      }
+
+      .btn {
+        font-family: var(--serif);
+        font-size: 14px;
+        background: var(--paper-2);
+        border: 1px solid var(--border);
+        color: var(--ink);
+        padding: 8px 16px;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: all 0.15s;
+        min-height: 36px;
+      }
+      .btn:hover {
+        background: var(--soft);
+      }
+      .btn.primary {
+        background: var(--ink);
+        color: var(--paper-2);
+        border-color: var(--ink);
+      }
+      .btn.primary:hover {
+        background: #2a2520;
+      }
+
+      .pr-head {
+        padding: 24px 32px 22px;
+        border-bottom: 1px solid var(--border);
+      }
+      .pr-head .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        flex-wrap: wrap;
+      }
+      .pr-head h2 {
+        font-family: var(--serif);
+        font-weight: 400;
+        font-size: 24px;
+        margin: 0;
+        letter-spacing: -0.005em;
+        color: var(--ink);
+        line-height: 1.25;
+      }
+      .pr-head h2 .num {
+        color: var(--muted);
+        margin-left: 4px;
+      }
+      .pr-head .actions {
+        display: flex;
+        gap: 8px;
+      }
+      .pr-meta {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        font-size: 14px;
+        color: var(--muted);
+        flex-wrap: wrap;
+        margin: 10px 0 0;
+      }
+      .pr-meta .status {
+        background: var(--rust-tint);
+        color: var(--rust);
+        padding: 2px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        border: 1px solid var(--rust-soft);
+      }
+      .pr-meta .stats {
+        color: var(--ink-2);
+      }
+      .pr-meta .dotline {
+        color: var(--muted-2);
+      }
+      .author-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--ink);
+      }
+
+      .body-3col {
+        display: grid;
+        grid-template-columns: 220px 1fr 260px;
+        min-height: 520px;
+      }
+      .rail-l,
+      .rail-r {
+        background: var(--rail);
+        padding: 22px 22px;
+        border-right: 1px solid var(--border);
+        font-size: 13.5px;
+      }
+      .rail-r {
+        border-right: 0;
+        border-left: 1px solid var(--border);
+      }
+      .rail-label {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 14px;
+      }
+      .rail-label.sub {
+        margin-top: 28px;
+      }
+
+      .toc-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .toc-list li {
+        margin: 0;
+        padding: 0;
+      }
+      .toc-item {
+        display: grid;
+        grid-template-columns: 22px 1fr auto;
+        align-items: center;
+        padding: 9px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        color: var(--ink-2);
+        margin-bottom: 2px;
+        gap: 6px;
+        background: transparent;
+        border: 0;
+        width: 100%;
+        text-align: left;
+        font-family: var(--serif);
+      }
+      .toc-item .toc-n {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .toc-item .toc-frac {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--muted-2);
+      }
+      .toc-item.done .toc-n {
+        color: var(--sage);
+      }
+      .toc-item.done .toc-n::before {
+        content: '✓';
+      }
+      .toc-item:hover {
+        background: var(--paper-2);
+      }
+      .toc-item[aria-current='page'] {
+        background: var(--paper-2);
+        color: var(--ink);
+        border: 1px solid var(--border);
+        font-weight: 500;
+      }
+      .toc-item[aria-current='page'] .toc-frac {
+        color: var(--rust);
+      }
+
+      .kbd-hint {
+        margin: 22px 0 0;
+        padding-top: 14px;
+        border-top: 1px dashed var(--border);
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--muted);
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .kbd-hint kbd {
+        font-family: var(--mono);
+        font-size: 10px;
+        background: var(--paper-2);
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 3px;
+        padding: 1px 5px;
+        margin-right: 4px;
+        color: var(--ink-2);
+      }
+
+      .main {
+        padding: 32px 36px;
+        background: var(--paper-2);
+        min-width: 0;
+      }
+      .main .marker-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin: 32px 0 4px;
+      }
+      .main .marker-row:first-child {
+        margin-top: 0;
+      }
+      .main .marker-row > div:first-child {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .main .marker {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--rust);
+      }
+      .main h3.head {
+        font-family: var(--serif);
+        font-weight: 400;
+        font-size: 28px;
+        letter-spacing: -0.005em;
+        margin: 0;
+        color: var(--ink);
+        line-height: 1.2;
+        display: block;
+      }
+      .main p {
+        margin: 12px 0;
+        color: var(--ink-2);
+        max-width: 62ch;
+        line-height: 1.65;
+        font-size: 15.5px;
+      }
+      .main em {
+        font-style: italic;
+        color: var(--ink);
+      }
+
+      .chapter-actions {
+        display: flex;
+        align-items: baseline;
+        gap: 16px;
+        padding-top: 4px;
+      }
+      .chapter-actions .meta {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .chapter-actions button {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        cursor: pointer;
+        border: 0;
+        background: transparent;
+        border-bottom: 1px dotted var(--muted-2);
+        padding: 0 0 1px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+      .chapter-actions button:hover {
+        color: var(--rust);
+        border-bottom-color: var(--rust);
+      }
+
+      .chapter-spans {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 22px 0 16px;
+        flex-wrap: wrap;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .chapter-spans .lbl {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-right: 4px;
+      }
+      .chapter-spans .file-pill {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        background: var(--soft);
+        border: 1px solid var(--border-soft);
+        color: var(--ink-2);
+        padding: 2px 8px;
+        border-radius: 3px;
+      }
+
+      .hunk {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin: 14px 0;
+        background: var(--paper-2);
+        overflow: hidden;
+      }
+      .hunk-head {
+        background: var(--rail);
+        border-bottom: 1px solid var(--border);
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin: 0;
+      }
+      .hunk-head .path {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--ink);
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .hunk-head .author {
+        font-family: var(--mono);
+        font-size: 11px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--ink-2);
+      }
+      .hunk-head .author .avatar {
+        width: 18px;
+        height: 18px;
+        font-size: 10px;
+        border-radius: 3px;
+      }
+      /* Confidence renders as a word band (FR-P0.5): low/medium/high in red/amber/green. */
+      .hunk-head .conf {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--muted);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .hunk-head .conf.high {
+        color: var(--sage);
+      }
+      .hunk-head .conf.medium {
+        color: var(--amber);
+      }
+      .hunk-head .conf.low {
+        color: var(--rust);
+      }
+      .hunk-body {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.65;
+        padding: 12px 0;
+        background: var(--paper-2);
+        margin: 0;
+        white-space: pre;
+        overflow-x: auto;
+      }
+      .hunk-body .line {
+        display: block;
+        padding: 0 14px;
+        border-left: 2px solid transparent;
+      }
+      .hunk-body .line .ln {
+        color: var(--muted-2);
+        width: 32px;
+        display: inline-block;
+      }
+      .hunk-body .line.add {
+        background: rgba(92, 117, 89, 0.14);
+        border-left-color: var(--sage);
+        color: var(--sage);
+      }
+      .hunk-body .line.add .ln {
+        color: var(--sage);
+      }
+      .hunk-body .line.del {
+        background: var(--rust-tint);
+        border-left-color: var(--rust);
+        color: var(--rust);
+      }
+      .hunk-body .line.del .ln {
+        color: var(--rust);
+      }
+      .hunk-body .line.ctx {
+        color: var(--ink-3);
+      }
+
+      .chapter-foot {
+        margin: 28px 0 0;
+        padding: 16px 18px;
+        border: 1px solid var(--border-soft);
+        border-radius: 6px;
+        background: var(--soft);
+      }
+      .chapter-foot .lbl-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+        gap: 12px;
+      }
+      .chapter-foot .lbl {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .chapter-foot .scope {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--muted);
+        font-style: italic;
+      }
+      .chapter-foot input {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        font-family: var(--serif);
+        font-size: 16px;
+        color: var(--ink);
+        padding: 6px 0;
+      }
+      .chapter-foot input::placeholder {
+        color: var(--muted);
+        font-style: italic;
+      }
+      .chapter-foot input:focus {
+        outline: 0;
+      }
+      .chapter-foot .hint {
+        margin: 8px 0 0;
+        padding-top: 8px;
+        border-top: 1px dashed var(--border-soft);
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .chapter-foot .hint kbd {
+        font-family: var(--mono);
+        font-size: 10px;
+        background: var(--paper-2);
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 3px;
+        padding: 1px 5px;
+        color: var(--ink-2);
+        margin-right: 2px;
+      }
+
+      .kv {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        padding: 7px 0;
+        font-size: 13px;
+        color: var(--ink);
+        border-top: 1px dotted var(--border);
+      }
+      .kv:first-of-type {
+        border-top: 0;
+      }
+      .kv .k {
+        color: var(--ink-2);
+      }
+      /* Author-session confidence: also a word band, not a raw number. */
+      .confidence-band {
+        font-family: var(--serif);
+        font-size: 30px;
+        letter-spacing: -0.01em;
+        margin: 6px 0 8px;
+        text-transform: capitalize;
+        color: var(--ink);
+      }
+      .confidence-band.high {
+        color: var(--sage);
+      }
+      .confidence-band.medium {
+        color: var(--amber);
+      }
+      .confidence-band.low {
+        color: var(--rust);
+      }
+      .confidence-note {
+        font-style: italic;
+        color: var(--ink-2);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .reviewer-row {
+        display: grid;
+        grid-template-columns: 26px 1fr auto;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 0;
+        border-top: 1px dotted var(--border);
+        font-size: 13px;
+        margin: 0;
+      }
+      .reviewer-row:first-of-type {
+        border-top: 0;
+      }
+      .reviewer-row .name {
+        font-weight: 500;
+      }
+      .reviewer-row .risk {
+        color: var(--rust);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      /* Skeleton — shown until revision data renders (chapters stream in on T2.5). */
+      .skeleton {
+        padding: 44px 4px;
+      }
+      .skeleton .sk {
+        background: var(--soft);
+        border-radius: 5px;
+        animation: sk-pulse 1.4s ease-in-out infinite;
+      }
+      .skeleton .sk.title {
+        height: 34px;
+        width: 60%;
+        margin: 0 0 20px;
+      }
+      .skeleton .sk.line {
+        height: 14px;
+        margin: 10px 0;
+      }
+      .skeleton .sk.line.short {
+        width: 40%;
+      }
+      @keyframes sk-pulse {
+        0%,
+        100% {
+          opacity: 0.55;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      @media (max-width: 1080px) {
+        .body-3col {
+          grid-template-columns: 1fr;
+        }
+        .rail-l,
+        .rail-r {
+          border-right: 0;
+          border-left: 0;
+          border-bottom: 1px solid var(--border);
+        }
+        .rail-r {
+          border-bottom: 0;
+          border-top: 1px solid var(--border);
+        }
+        .page > h1 {
+          font-size: 36px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a href="#content" class="skip-link">Skip to content</a>
+
+    <div class="shell">
+      <main id="content">
+        <article class="page" id="panel-01" aria-busy="true">
+          <div class="skeleton" id="skeleton" aria-label="Loading revision">
+            <div class="sk title"></div>
+            <div class="sk line"></div>
+            <div class="sk line"></div>
+            <div class="sk line short"></div>
+          </div>
+        </article>
+      </main>
+    </div>
+
+    <button
+      type="button"
+      class="help-trigger"
+      id="helpTrigger"
+      aria-label="Open keyboard shortcuts"
+      aria-expanded="false"
+      aria-controls="helpDialog"
+    >
+      ?
+    </button>
+    <div
+      class="help-dialog"
+      id="helpDialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="helpTitle"
+      aria-describedby="helpSub"
+    >
+      <div class="panel">
+        <h2 id="helpTitle">Keyboard shortcuts</h2>
+        <p id="helpSub" class="sub">Navigation works without a mouse.</p>
+        <dl>
+          <dt><kbd>j</kbd> <kbd>k</kbd></dt>
+          <dd>Next / previous chapter</dd>
+          <dt><kbd>r</kbd></dt>
+          <dd>Recompose active chapter</dd>
+          <dt><kbd>c</kbd></dt>
+          <dd>Comment on active chapter</dd>
+          <dt><kbd>?</kbd></dt>
+          <dd>Open this dialog</dd>
+          <dt><kbd>Esc</kbd></dt>
+          <dd>Close this dialog</dd>
+        </dl>
+        <button type="button" class="close" id="helpClose">Close · Esc</button>
+      </div>
+    </div>
+
+    <div class="sr-only" aria-live="polite" id="liveStatus"></div>
+
+    <script>
+      (function () {
+        'use strict';
+
+        // ---- Demo revision -------------------------------------------------------
+        // Standalone fallback when no server has injected `window.__REVISION__` and
+        // the /api fetch is unavailable (T1.9 wires the live route). This is the
+        // Concept 01 reference content expressed as data — the render is a pure
+        // function of this object, so live API data drops in unchanged.
+        const DEMO_REVISION = {
+          repo_slug: 'acmeco/api',
+          pull: {
+            id: '1247',
+            number: 1247,
+            title: 'Add semantic search to support inbox',
+            status: 'Open · Draft',
+          },
+          revision_number: 1,
+          stats: { additions: 1847, deletions: 312, files: 23 },
+          authors: [
+            { name: 'Claude Sonnet 4.6', kind: 'claude', initial: 'C' },
+            { name: 'cursor-tab', kind: 'codex', initial: 'X' },
+          ],
+          chapters: [
+            { id: 'c1', order: 1, title: 'Problem', read: { done: 8, total: 8 } },
+            { id: 'c2', order: 2, title: 'Approach', read: { done: 12, total: 12 } },
+            {
+              id: 'c3',
+              order: 3,
+              title: 'Tradeoffs',
+              marker: '§ 03 · Tradeoff',
+              heading: 'Tradeoffs I considered',
+              active: true,
+              read: { done: 3, total: 14 },
+              read_time: '3 min · 14 hunks',
+              summary:
+                'Three options, scored on cost vs accuracy across 5,000 real tickets. pgvector inside Postgres won — accuracy 0.87, no new vendor, owns its own scaling. Four points behind Pinecone (0.91), but it skips the new-vendor cost and the slower lookup. The hybrid path scored higher still, yet the rerank was too slow.',
+              spans: [
+                'db/migrations/0042_pgvector.sql',
+                'models/ticket.ts',
+                'tests/migration.spec.ts',
+              ],
+              hunk_ids: ['h1', 'h2', 'h3'],
+              session: { number: 4, agent: 'Claude' },
+            },
+            { id: 'c4', order: 4, title: 'Schema changes', read: { done: 0, total: 9 } },
+            { id: 'c5', order: 5, title: 'API surface', read: { done: 0, total: 22 } },
+            { id: 'c6', order: 6, title: 'Tests & behavior', read: { done: 0, total: 18 } },
+            { id: 'c7', order: 7, title: 'Rollout plan', read: { done: 0, total: 4 } },
+          ],
+          hunks: {
+            h1: {
+              file_path: 'db/migrations/0042_pgvector.sql',
+              range_label: 'created',
+              agent: { name: 'Claude', kind: 'claude', initial: 'C' },
+              confidence: 0.94,
+              lines: [
+                {
+                  kind: 'add',
+                  no: '+ 1',
+                  text: 'ALTER TABLE support_tickets ADD COLUMN embedding vector(768);',
+                },
+                { kind: 'add', no: '+ 2', text: 'CREATE INDEX tickets_embedding_idx' },
+                {
+                  kind: 'add',
+                  no: '+ 3',
+                  text: 'ON support_tickets USING hnsw (embedding vector_cosine_ops);',
+                },
+              ],
+            },
+            h2: {
+              file_path: 'models/ticket.ts',
+              range_label: 'L84-92',
+              agent: { name: 'cursor-tab', kind: 'codex', initial: 'X' },
+              confidence: 0.71,
+              lines: [
+                { kind: 'ctx', no: '84', text: 'export class Ticket {' },
+                { kind: 'ctx', no: '85', text: '  id: string;' },
+                { kind: 'del', no: '86', text: '  embedding?: number[];' },
+                { kind: 'add', no: '86', text: '  embedding?: Float32Array;' },
+                { kind: 'ctx', no: '87', text: '  vectorIndex?: string;' },
+                { kind: 'ctx', no: '88', text: '}' },
+              ],
+            },
+            h3: {
+              file_path: 'tests/migration.spec.ts',
+              range_label: 'L12-30',
+              agent: { name: 'Claude', kind: 'claude', initial: 'C' },
+              confidence: 0.96,
+              lines: [
+                { kind: 'add', no: '+12', text: 'describe("0042 pgvector backfill", () => {' },
+                {
+                  kind: 'add',
+                  no: '+13',
+                  text: '  it("indexes new tickets in batches of 500", async () => {',
+                },
+                { kind: 'add', no: '+14', text: '    await migrate.up();' },
+                { kind: 'add', no: '+15', text: '    expect(await indexed()).toBe(5_000);' },
+                { kind: 'add', no: '+16', text: '  });' },
+                { kind: 'add', no: '+17', text: '});' },
+              ],
+            },
+          },
+          session: {
+            agent: 'Claude Sonnet 4.6',
+            duration: '1h 22m',
+            tool_calls: 47,
+            sessions: '4 (resumed)',
+            confidence: 0.82,
+            note: 'Confident in the schema. Less sure about rollback. No test for backfill failing halfway.',
+          },
+          reviewers: [{ name: 'Skeptic', kind: 'skeptic', initial: 'S', risk: '2 risks' }],
+        };
+
+        // ---- Helpers -------------------------------------------------------------
+        const esc = (v) =>
+          String(v == null ? '' : v)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
+        const KINDS = ['claude', 'codex', 'skeptic', 'sage', 'amber', 'muted'];
+        const avatarKind = (k) => (KINDS.includes(k) ? k : 'muted');
+
+        // Confidence → word band. Accepts a 0..1 number or a "high"/"medium"/"low"
+        // string, so both the week-1 stub (all "high") and richer data map cleanly.
+        function confidenceBand(c) {
+          if (typeof c === 'number') return c >= 0.8 ? 'high' : c >= 0.5 ? 'medium' : 'low';
+          const b = String(c ?? '').toLowerCase();
+          // Unknown/missing confidence falls to the low (red) end, not high — on a
+          // review trust surface, garbage must not render as "fully vetted".
+          return b === 'high' || b === 'medium' || b === 'low' ? b : 'low';
+        }
+
+        const announce = (msg) => {
+          const el = document.getElementById('liveStatus');
+          if (el) {
+            el.textContent = '';
+            setTimeout(() => (el.textContent = msg), 60);
+          }
+        };
+
+        // ---- Fragment builders ---------------------------------------------------
+        function authorChip(a) {
+          return (
+            '<span class="author-chip"><span class="avatar ' +
+            avatarKind(a.kind) +
+            '" aria-hidden="true">' +
+            esc(a.initial) +
+            '</span>' +
+            esc(a.name) +
+            '</span>'
+          );
+        }
+
+        function tocItem(ch, activeId) {
+          const done = ch.read && ch.read.total > 0 && ch.read.done >= ch.read.total;
+          const isActive = ch.id === activeId;
+          const frac = ch.read ? ch.read.done + ' of ' + ch.read.total : '';
+          return (
+            '<li><button type="button" class="toc-item' +
+            (done ? ' done' : '') +
+            '" data-toc="' +
+            esc(ch.id) +
+            '"' +
+            (isActive ? ' aria-current="page"' : '') +
+            '>' +
+            '<span class="toc-n" aria-hidden="true">' +
+            esc(ch.order) +
+            '</span>' +
+            '<span>' +
+            esc(ch.title) +
+            '</span>' +
+            '<span class="toc-frac"><span class="sr-only">Read </span>' +
+            esc(frac) +
+            '</span>' +
+            '</button></li>'
+          );
+        }
+
+        function hunkSection(h) {
+          if (!h) return '';
+          const band = confidenceBand(h.confidence);
+          const a = h.agent || { name: 'unknown', kind: 'muted', initial: '?' };
+          const label =
+            'Hunk: ' +
+            h.file_path +
+            (h.range_label ? ' ' + h.range_label : '') +
+            ' by ' +
+            a.name +
+            ', confidence ' +
+            band;
+          const lines = (h.lines || [])
+            .map(
+              (ln) =>
+                '<span class="line ' +
+                esc(ln.kind) +
+                '"><span class="ln">' +
+                esc(ln.no) +
+                '</span>' +
+                esc(ln.text) +
+                '</span>',
+            )
+            .join('');
+          return (
+            '<section class="hunk" aria-label="' +
+            esc(label) +
+            '">' +
+            '<header class="hunk-head">' +
+            '<span class="path">' +
+            esc(h.file_path) +
+            (h.range_label ? ' · ' + esc(h.range_label) : '') +
+            '</span>' +
+            '<span class="author"><span class="avatar ' +
+            avatarKind(a.kind) +
+            '" aria-hidden="true">' +
+            esc(a.initial) +
+            '</span>' +
+            esc(a.name) +
+            '</span>' +
+            '<span class="conf ' +
+            band +
+            '"><span class="sr-only">Confidence </span>' +
+            band +
+            '</span>' +
+            '</header>' +
+            '<pre class="hunk-body" aria-label="Diff content">' +
+            lines +
+            '</pre>' +
+            '</section>'
+          );
+        }
+
+        function chapterMain(ch, hunks) {
+          if (!ch) return '';
+          const spans = (ch.spans || [])
+            .map((f) => '<span class="file-pill">' + esc(f) + '</span>')
+            .join('');
+          const hunkHtml = (ch.hunk_ids || []).map((id) => hunkSection(hunks[id])).join('');
+          // Raw text — escaped once at the point of use below, not here.
+          const sess = ch.session
+            ? 'scoped to this chapter · session ' + ch.session.number + ' · ' + ch.session.agent
+            : 'scoped to this chapter';
+          return (
+            '<article class="main">' +
+            '<header class="marker-row"><div>' +
+            '<span class="marker">' +
+            esc(ch.marker || '§ ' + ch.order) +
+            '</span>' +
+            '<h3 class="head">' +
+            esc(ch.heading || ch.title) +
+            '</h3></div>' +
+            '<div class="chapter-actions">' +
+            '<button type="button" id="recomposeBtn" aria-label="Recompose this chapter — let the agent regroup the hunks">Recompose</button>' +
+            '<span class="meta" aria-label="Estimated read time">' +
+            esc(ch.read_time || '') +
+            '</span>' +
+            '</div></header>' +
+            (ch.summary ? '<p>' + esc(ch.summary) + '</p>' : '') +
+            (spans
+              ? '<p class="chapter-spans"><span class="lbl">This chapter spans</span>' +
+                spans +
+                '</p>'
+              : '') +
+            hunkHtml +
+            '<form class="chapter-foot" id="askForm" onsubmit="return false;">' +
+            '<div class="lbl-row"><label class="lbl" for="askAuthor">Ask the author</label>' +
+            '<span class="scope">' +
+            esc(sess) +
+            '</span></div>' +
+            '<input type="text" id="askAuthor" name="ask" autocomplete="off" ' +
+            'placeholder="Why pgvector instead of Pinecone? What happens if the index rebuild fails halfway?">' +
+            '<p class="hint" id="askHint" aria-live="polite"><kbd>⌘</kbd><kbd>↩</kbd> to ask · ' +
+            'the agent that wrote this section answers, with the original session context</p>' +
+            '</form></article>'
+          );
+        }
+
+        function railRight(rev) {
+          const s = rev.session;
+          let html = '';
+          if (s) {
+            const band = confidenceBand(s.confidence);
+            html +=
+              '<p class="rail-label">Author session</p><dl style="margin:0;">' +
+              (s.agent
+                ? '<div class="kv"><dt class="k">Agent</dt><dd style="margin:0;">' +
+                  esc(s.agent) +
+                  '</dd></div>'
+                : '') +
+              (s.duration
+                ? '<div class="kv"><dt class="k">Duration</dt><dd style="margin:0;">' +
+                  esc(s.duration) +
+                  '</dd></div>'
+                : '') +
+              (s.tool_calls != null
+                ? '<div class="kv"><dt class="k">Tool calls</dt><dd style="margin:0;">' +
+                  esc(s.tool_calls) +
+                  '</dd></div>'
+                : '') +
+              (s.sessions
+                ? '<div class="kv"><dt class="k">Sessions</dt><dd style="margin:0;">' +
+                  esc(s.sessions) +
+                  '</dd></div>'
+                : '') +
+              '</dl>' +
+              '<p class="rail-label sub" id="conf-label">Confidence</p>' +
+              '<p class="confidence-band ' +
+              band +
+              '" aria-labelledby="conf-label">' +
+              '<span class="sr-only">Confidence </span>' +
+              band +
+              '</p>' +
+              (s.note ? '<p class="confidence-note">' + esc(s.note) + '</p>' : '');
+          }
+          const reviewers = rev.reviewers || [];
+          if (reviewers.length) {
+            html += '<p class="rail-label sub">Reviewer agents</p>';
+            html += reviewers
+              .map(
+                (r) =>
+                  '<p class="reviewer-row"><span class="avatar ' +
+                  avatarKind(r.kind) +
+                  '" aria-hidden="true">' +
+                  esc(r.initial) +
+                  '</span><span class="name">' +
+                  esc(r.name) +
+                  '</span><span class="risk"><span class="sr-only">flagged </span>' +
+                  esc(r.risk) +
+                  '</span></p>',
+              )
+              .join('');
+          }
+          return html;
+        }
+
+        // ---- Top-level render ----------------------------------------------------
+        function renderRevision(rev) {
+          const chapters = rev.chapters || [];
+          const active = chapters.find((c) => c.active) || chapters[0] || null;
+          const activeId = active ? active.id : null;
+          const stats = rev.stats || {};
+          const statLine =
+            '+' +
+            (stats.additions || 0).toLocaleString() +
+            ' / −' +
+            (stats.deletions || 0).toLocaleString() +
+            ' across ' +
+            (stats.files || 0) +
+            ' files';
+          const url =
+            'review.dev/' + (rev.repo_slug || 'repo') + '/pr/' + (rev.pull ? rev.pull.number : '');
+
+          const html =
+            '<p class="pre-label">Read it like a doc</p>' +
+            '<h1>The PR opens to a <em>story</em>, not a file tree.</h1>' +
+            '<p class="lede">Read the why before the what. Chapters span files, not the other way around. ' +
+            'Each hunk knows which agent wrote it and how confident it was.</p>' +
+            '<section class="browser" aria-label="Narrative pull request view">' +
+            '<div class="chrome" aria-hidden="true"><div class="dots"><span class="dot r"></span>' +
+            '<span class="dot y"></span><span class="dot g"></span></div>' +
+            '<div class="url">' +
+            esc(url) +
+            '</div></div>' +
+            '<header class="pr-head"><div class="row">' +
+            '<h2>' +
+            esc(rev.pull ? rev.pull.title : '') +
+            ' <span class="num">#' +
+            esc(rev.pull ? rev.pull.number : '') +
+            '</span></h2>' +
+            '<div class="actions"><button type="button" class="btn">Comment</button>' +
+            '<button type="button" class="btn primary">Approve chapter</button></div></div>' +
+            '<p class="pr-meta"><span class="status">' +
+            esc(rev.pull ? rev.pull.status : '') +
+            '</span>' +
+            '<span class="dotline" aria-hidden="true">·</span>' +
+            '<span class="stats">' +
+            esc(statLine) +
+            '</span>' +
+            '<span class="dotline" aria-hidden="true">·</span><span>Written by</span>' +
+            (rev.authors || []).map(authorChip).join('') +
+            '</p></header>' +
+            '<div class="body-3col">' +
+            '<nav class="rail-l" aria-label="Chapters"><p class="rail-label">Chapters</p>' +
+            '<ul class="toc-list">' +
+            chapters.map((c) => tocItem(c, activeId)).join('') +
+            '</ul>' +
+            '<p class="kbd-hint" aria-label="Keyboard shortcuts">' +
+            '<span><kbd>j</kbd><kbd>k</kbd> next / prev chapter</span>' +
+            '<span><kbd>c</kbd> comment <kbd>r</kbd> recompose</span>' +
+            '<span><kbd>?</kbd> all shortcuts</span></p></nav>' +
+            chapterMain(active, rev.hunks || {}) +
+            '<aside class="rail-r" aria-label="Author session details">' +
+            railRight(rev) +
+            '</aside>' +
+            '</div></section>';
+
+          const panel = document.getElementById('panel-01');
+          panel.innerHTML = html;
+          panel.setAttribute('aria-busy', 'false');
+          document.title = (rev.pull ? rev.pull.title : 'review.dev') + ' — review.dev';
+          wireInteractions();
+        }
+
+        // ---- Chapter interactions: TOC selection, recompose, ask ----------------
+        function wireInteractions() {
+          document.querySelectorAll('.toc-item').forEach((item) => {
+            item.addEventListener('click', () => selectToc(item));
+          });
+
+          const recompose = document.getElementById('recomposeBtn');
+          if (recompose) {
+            recompose.addEventListener('click', () => {
+              recompose.textContent = 'Recomposing…';
+              announce('Recomposing chapter');
+              setTimeout(() => {
+                recompose.textContent = 'Recomposed';
+                recompose.style.color = 'var(--sage)';
+                recompose.style.borderBottomColor = 'var(--sage)';
+                announce('Chapter recomposed');
+              }, 600);
+              setTimeout(() => {
+                recompose.textContent = 'Recompose';
+                recompose.style.color = '';
+                recompose.style.borderBottomColor = '';
+              }, 2400);
+            });
+          }
+
+          const askInput = document.getElementById('askAuthor');
+          const askHint = document.getElementById('askHint');
+          if (askInput) {
+            askInput.addEventListener('keydown', (e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                if (!askInput.value.trim()) return;
+                askInput.value = '';
+                askHint.textContent = 'Asked the author. Answer arriving…';
+                announce('Question sent to the author');
+                setTimeout(() => {
+                  askHint.innerHTML =
+                    '<kbd>⌘</kbd><kbd>↩</kbd> to ask · the agent that wrote this section answers, with the original session context';
+                }, 4000);
+              }
+            });
+          }
+        }
+
+        function selectToc(item) {
+          document.querySelectorAll('.toc-item').forEach((i) => i.removeAttribute('aria-current'));
+          item.setAttribute('aria-current', 'page');
+        }
+
+        // Chapter nav (j/k) and chapter shortcuts (r/c), scoped away from inputs.
+        document.addEventListener('keydown', (e) => {
+          if (e.target.matches('input, textarea, [contenteditable]')) return;
+          const items = [...document.querySelectorAll('.toc-item')];
+          if (!items.length) return;
+          const idx = items.findIndex((i) => i.getAttribute('aria-current') === 'page');
+          if (e.key === 'j') {
+            e.preventDefault();
+            selectToc(items[Math.min(items.length - 1, idx + 1)]);
+            announce('Chapter selected');
+          } else if (e.key === 'k') {
+            e.preventDefault();
+            selectToc(items[Math.max(0, idx - 1)]);
+            announce('Chapter selected');
+          } else if (e.key === 'r') {
+            e.preventDefault();
+            const btn = document.getElementById('recomposeBtn');
+            if (btn) btn.click();
+          } else if (e.key === 'c') {
+            e.preventDefault();
+            const btn = document.querySelector('.pr-head .btn:not(.primary)');
+            if (btn) btn.focus();
+          }
+        });
+
+        // ---- Help dialog ---------------------------------------------------------
+        const helpDialog = document.getElementById('helpDialog');
+        const helpTrigger = document.getElementById('helpTrigger');
+        const helpClose = document.getElementById('helpClose');
+        let lastFocus = null;
+        function openHelp() {
+          lastFocus = document.activeElement;
+          helpDialog.classList.add('open');
+          helpTrigger.setAttribute('aria-expanded', 'true');
+          helpClose.focus();
+        }
+        function closeHelp() {
+          if (!helpDialog.classList.contains('open')) return;
+          helpDialog.classList.remove('open');
+          helpTrigger.setAttribute('aria-expanded', 'false');
+          if (lastFocus) lastFocus.focus();
+        }
+        // Focus trap: aria-modal="true" promises focus can't leave the open dialog.
+        helpDialog.addEventListener('keydown', (e) => {
+          if (e.key !== 'Tab' || !helpDialog.classList.contains('open')) return;
+          const focusable = helpDialog.querySelectorAll(
+            'button, [href], input, [tabindex]:not([tabindex="-1"])',
+          );
+          if (!focusable.length) return;
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        });
+        helpTrigger.addEventListener('click', openHelp);
+        helpClose.addEventListener('click', closeHelp);
+        helpDialog.addEventListener('click', (e) => {
+          if (e.target === helpDialog) closeHelp();
+        });
+        document.addEventListener('keydown', (e) => {
+          if (e.target.matches('input, textarea, [contenteditable]')) return;
+          if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+            e.preventDefault();
+            openHelp();
+          }
+          if (e.key === 'Escape') closeHelp();
+        });
+
+        // ---- Boot ----------------------------------------------------------------
+        // Data source order: server-injected snapshot → live API → standalone demo.
+        // The /pr/:id/rev/:n → /api/pr/:id/rev/:n route mapping lands in T1.9.
+        function revisionApiPath() {
+          const m = location.pathname.match(/\/pr\/([^/]+)\/rev\/([^/]+)/);
+          return m ? '/api/pr/' + m[1] + '/rev/' + m[2] : null;
+        }
+        const FETCH_TIMEOUT_MS = 8000;
+        async function boot() {
+          let data = window.__REVISION__ || null;
+          if (!data) {
+            const p = revisionApiPath();
+            if (p) {
+              // A matched path means real data was expected, so:
+              // - a failure is logged, not swallowed (the standalone case has no path);
+              // - a hung request is aborted after FETCH_TIMEOUT_MS so the fallback fires;
+              // - the user-facing error state ships with the serving route (T1.9).
+              // Until then we still fall back to the demo so the page isn't blank.
+              const ac = new AbortController();
+              const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
+              try {
+                const r = await fetch(p, {
+                  headers: { accept: 'application/json' },
+                  signal: ac.signal,
+                });
+                if (!r.ok) console.error('review.dev: revision fetch failed —', r.status, p);
+                else {
+                  // Read text first: an empty/whitespace body is a distinct case
+                  // from malformed JSON — r.json() would throw on both and blur them.
+                  const text = await r.text();
+                  if (!text.trim())
+                    console.error('review.dev: revision fetch returned an empty body —', p);
+                  else data = JSON.parse(text); // malformed non-empty body throws → caught below
+                }
+              } catch (err) {
+                console.error('review.dev: revision fetch error —', p, err);
+              } finally {
+                clearTimeout(timer);
+              }
+            }
+          }
+          renderRevision(data || DEMO_REVISION);
+        }
+        boot();
+      })();
+    </script>
+  </body>
+</html>
