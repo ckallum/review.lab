@@ -1499,9 +1499,12 @@
                 });
                 if (!r.ok) console.error('review.dev: revision fetch failed —', r.status, p);
                 else {
-                  const body = await r.json();
-                  if (body) data = body;
-                  else console.error('review.dev: revision fetch returned an empty body —', p);
+                  // Read text first: an empty/whitespace body is a distinct case
+                  // from malformed JSON — r.json() would throw on both and blur them.
+                  const text = await r.text();
+                  if (!text.trim())
+                    console.error('review.dev: revision fetch returned an empty body —', p);
+                  else data = JSON.parse(text); // malformed non-empty body throws → caught below
                 }
               } catch (err) {
                 console.error('review.dev: revision fetch error —', p, err);
