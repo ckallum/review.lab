@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { diffHash, hunkId, parseDiff } from './diff.ts';
+import { dedupeHunks, diffHash, hunkId, parseDiff, type ParsedHunk } from './diff.ts';
 
 // T1.4 ships proportionate coverage of the parser + hash. The exhaustive
 // property/fixture suite (30+ hash cases, 10+ revision-diff cases) is T1.6.
@@ -186,5 +186,34 @@ describe('parseDiff', () => {
       '',
     ].join('\n');
     expect(parseDiff(binary)).toEqual([]);
+  });
+});
+
+describe('dedupeHunks', () => {
+  const at = (startLine: number, endLine = startLine): ParsedHunk => ({
+    id: hunkId('src/x.ts', '+DUP'), // same path + content ⇒ same id, any line range
+    filePath: 'src/x.ts',
+    startLine,
+    endLine,
+    content: '+DUP',
+    kind: 'add',
+  });
+
+  it('keeps distinct-id hunks untouched', () => {
+    const a = { ...at(1), id: hunkId('a.ts', '+a'), filePath: 'a.ts', content: '+a' };
+    const b = { ...at(1), id: hunkId('b.ts', '+b'), filePath: 'b.ts', content: '+b' };
+    expect(dedupeHunks([a, b])).toEqual([a, b]);
+  });
+
+  it('collapses same-id hunks to the earliest occurrence (min start/end)', () => {
+    // id excludes line numbers, so these three are one hunk at three positions.
+    expect(dedupeHunks([at(50), at(5), at(20)])).toEqual([at(5)]);
+  });
+
+  it('is order-independent — the survivor does not depend on input order', () => {
+    const forward = dedupeHunks([at(5), at(50)]);
+    const reverse = dedupeHunks([at(50), at(5)]);
+    expect(reverse).toEqual(forward);
+    expect(forward).toEqual([at(5)]);
   });
 });
