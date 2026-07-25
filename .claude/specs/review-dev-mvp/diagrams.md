@@ -29,7 +29,7 @@ flowchart TD
 - **Duplicate detection.** `diff_hash` over the sorted set of hunk ids. If a re-publish hashes identically to the latest revision, no new row is inserted — `publish` just returns the existing URL.
 - **Inheritance hint.** The prompt to Anthropic includes (a) the prior revision's chapter titles + (b) which of its hunks survived to this revision by content hash. Instructs the model to reuse titles/groupings where every underlying hunk is unchanged.
 - **No supersedes.** Two overlapping publishes both succeed and each get their own SSE stream — independent revisions, no cancellation.
-- **Writers.** `reviewdev publish` writes the revision row + hunks + sessions. `reviewdev serve` (SSE handler) writes chapters + decisions + usage. The two never contend.
+- **Writers.** `reviewdev publish` sends the revision row + hunks + sessions to `reviewdev serve`, which writes them. `serve` also writes chapters: synchronously in the `POST /api/pr` path via the file-based fallback (T1.8, no LLM), and via the SSE `/generate` handler for the LLM path (chapters + decisions + usage — T2.5). The two never contend.
 
 ## User Flow — viewing a PR with multiple revisions
 
