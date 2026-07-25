@@ -232,8 +232,8 @@ function insertRevision(
   // deterministic file-grouped chapters here in the same transaction. When the
   // LLM path lands (T2.x) it must gate this write on the missing API key, or
   // clear these rows before inserting its own, to keep one chapter set per
-  // revision (tracked in issue #33, which also adds the UNIQUE (revision_id,
-  // "order") index that makes a double-write fail loudly). `hunks` is the
+  // revision (tracked in #33); the UNIQUE (revision_id, "order") index from
+  // migration 002 already makes that double-write fail loudly. `hunks` is the
   // already-deduped set the rows above were built from; its id set gates
   // `chapter_hunks` so a chapter can only reference a hunk in this revision.
   const hunkIds = new Set(hunks.map((h) => h.id));

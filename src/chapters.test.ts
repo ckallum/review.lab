@@ -407,6 +407,21 @@ describe('insertChapters', () => {
       /not in revision/,
     );
   });
+
+  it('the UNIQUE (revision_id, "order") index blocks a second chapter set (migration 002)', () => {
+    const db = freshDb();
+    const { revisionId, pullId } = seedRevision(db);
+    const chapters: FileChapter[] = [
+      { marker: '§ 01', title: 'src', summary: null, order: 1, hunkIds: ['h1'] },
+    ];
+    const ids = new Set(['h1']);
+    insertChapters(db, revisionId, pullId, chapters, ids);
+    // A second write for the same revision (the T2.x double-write mistake) hits
+    // the unique index and fails instead of silently doubling the TOC.
+    expect(() => insertChapters(db, revisionId, pullId, chapters, ids)).toThrow(
+      /UNIQUE constraint/i,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
