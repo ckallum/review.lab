@@ -9,8 +9,10 @@ import { dedupeHunks, type ParsedHunk } from './diff.ts';
  * file-based chapters (SPEC.md § Roadmap).
  *
  * The rules (SPEC.md § LLM config, tasks.md T1.8):
- * - Group hunks by TOP-LEVEL directory; SECONDARY split by file extension.
- * - Aim for 3–7 chapters with `§ NN` marker numbering.
+ * - Group hunks by TOP-LEVEL directory; SECONDARY split by extension only when
+ *   the diff spans fewer than 3 directories.
+ * - Aim for 3 chapters (best-effort — a diff spanning fewer than 3 dir/ext cells
+ *   yields fewer, never fabricated), hard-capped at 7 with `§ NN` marker numbers.
  *
  * `fileBasedChapters` is pure and set-valued — identical hunk sets yield
  * byte-identical chapters regardless of input order (matching the set semantics
@@ -19,10 +21,15 @@ import { dedupeHunks, type ParsedHunk } from './diff.ts';
  */
 
 /** A chapter as this module emits it, before it is written to `chapters` +
- * `chapter_hunks`. `hunkIds` is ordered; its index drives `chapter_hunks.order`. */
+ * `chapter_hunks`. `hunkIds` is ordered; its 1-based position drives
+ * `chapter_hunks.order`. */
 export interface FileChapter {
   readonly marker: string; // `§ NN`, zero-padded, equal to `order`
-  readonly title: string; // non-empty label (dir, `dir · .ext`, `(root)`, `(other)`)
+  // Display label only (`src`, `src · .ext`, `(root)`, `(other)`) — NOT a stable
+  // cross-revision identity key. A granularity flip (e.g. a 3rd dir appearing in
+  // rev N+1) rewrites titles without the grouping changing, so T1.10's chapter
+  // delta must key on hunk-id overlap (diffRevisions), never on title equality.
+  readonly title: string;
   readonly summary: string | null; // always null for the no-LLM path
   readonly order: number; // 1-based, contiguous
   readonly hunkIds: readonly string[];
@@ -35,27 +42,23 @@ export const MAX_CHAPTERS = 7;
 
 type Granularity = 'dir' | 'ext';
 
-interface TopDir {
-  readonly isRoot: boolean;
-  readonly dir: string | null; // null when isRoot
-}
-
 interface Group {
   // The grouping key is set once at construction; only `hunks` accumulates.
-  readonly isRoot: boolean;
+  // `dir === null` IS the root bucket (a distinct non-string sentinel — no
+  // empty-string dir key that could collide with a directory literally named '').
   readonly dir: string | null;
   readonly ext: string | null; // null under 'dir' granularity; '' (no ext) or the ext under 'ext'
   readonly isOverflow: boolean; // the synthetic `(other)` merge bucket
   hunks: ParsedHunk[];
 }
 
-/** First path segment, or the root bucket for a bare filename. A defensive
- * leading `/` (never emitted by `diff.ts`, which strips `a/`/`b/`) also routes
- * to root rather than minting an empty-string directory. Dir keys are
- * byte-exact — `Src` and `src` are genuinely different directories in git. */
-function topDir(path: string): TopDir {
+/** First path segment, or `null` (the root bucket) for a bare filename. A
+ * defensive leading `/` (never emitted by `diff.ts`, which strips `a/`/`b/`)
+ * also routes to root rather than minting an empty-string directory. Dir keys
+ * are byte-exact — `Src` and `src` are genuinely different directories in git. */
+function topDir(path: string): string | null {
   const i = path.indexOf('/');
-  return i <= 0 ? { isRoot: true, dir: null } : { isRoot: false, dir: path.slice(0, i) };
+  return i <= 0 ? null : path.slice(0, i);
 }
 
 /** Extension = the basename segment after its LAST dot, lowercased. `j <= 0`
@@ -69,20 +72,19 @@ function ext(path: string): string {
   return j <= 0 || j === base.length - 1 ? '' : base.slice(j + 1).toLowerCase();
 }
 
-// Group keys are JSON tuples so a directory or extension containing the field
-// separator can never collide with a different bucket.
-function dirKey(td: TopDir): string {
-  return JSON.stringify([td.isRoot, td.dir]);
+// Group keys are JSON so `null` (root) can never collide with a named directory.
+function dirKey(dir: string | null): string {
+  return JSON.stringify(dir);
 }
-function extKey(td: TopDir, e: string): string {
-  return JSON.stringify([td.isRoot, td.dir, e]);
+function extKey(dir: string | null, e: string): string {
+  return JSON.stringify([dir, e]);
 }
 
 function rankOf(g: Group): number {
-  return g.isOverflow ? 2 : g.isRoot ? 1 : 0;
+  return g.isOverflow ? 2 : g.dir === null ? 1 : 0;
 }
 function sortDir(g: Group): string {
-  return g.isRoot || g.isOverflow ? '' : (g.dir ?? '');
+  return g.isOverflow || g.dir === null ? '' : g.dir;
 }
 function sortExt(g: Group, granularity: Granularity): string {
   return granularity === 'ext' && !g.isOverflow ? (g.ext ?? '') : '';
@@ -123,7 +125,7 @@ function orderedHunkIds(hunks: readonly ParsedHunk[]): string[] {
 
 function titleFor(g: Group, granularity: Granularity): string {
   if (g.isOverflow) return '(other)';
-  const dirLabel = g.isRoot ? '(root)' : (g.dir as string);
+  const dirLabel = g.dir === null ? '(root)' : g.dir;
   if (granularity === 'dir') return dirLabel;
   const extLabel = g.ext ? `.${g.ext}` : '(no ext)';
   return `${dirLabel} · ${extLabel}`;
@@ -144,7 +146,6 @@ function capGroups(groups: Group[], granularity: Granularity): Group[] {
   const keep = ranked.slice(0, MAX_CHAPTERS - 1);
   const tail = ranked.slice(MAX_CHAPTERS - 1);
   const overflow: Group = {
-    isRoot: false,
     dir: null,
     ext: null,
     isOverflow: true,
@@ -178,11 +179,11 @@ export function fileBasedChapters(hunks: readonly ParsedHunk[]): FileChapter[] {
   // Primary buckets: top-level directory.
   const dirs = new Map<string, Group>();
   for (const h of distinct) {
-    const info = topDir(h.filePath);
-    const key = dirKey(info);
+    const dir = topDir(h.filePath);
+    const key = dirKey(dir);
     let g = dirs.get(key);
     if (!g) {
-      g = { isRoot: info.isRoot, dir: info.dir, ext: null, isOverflow: false, hunks: [] };
+      g = { dir, ext: null, isOverflow: false, hunks: [] };
       dirs.set(key, g);
     }
     g.hunks.push(h);
@@ -198,12 +199,12 @@ export function fileBasedChapters(hunks: readonly ParsedHunk[]): FileChapter[] {
   } else {
     const sub = new Map<string, Group>();
     for (const h of distinct) {
-      const info = topDir(h.filePath);
+      const dir = topDir(h.filePath);
       const e = ext(h.filePath);
-      const key = extKey(info, e);
+      const key = extKey(dir, e);
       let g = sub.get(key);
       if (!g) {
-        g = { isRoot: info.isRoot, dir: info.dir, ext: e, isOverflow: false, hunks: [] };
+        g = { dir, ext: e, isOverflow: false, hunks: [] };
         sub.set(key, g);
       }
       g.hunks.push(h);
@@ -234,12 +235,21 @@ export function fileBasedChapters(hunks: readonly ParsedHunk[]): FileChapter[] {
  * inside the `createRevision` transaction so a partial write rolls back with the
  * revision. `inherited_from_chapter_id` is left NULL: inheritance is a
  * prompt-level LLM hint (SPEC.md § Chapter inheritance), absent from this path.
+ *
+ * `revisionHunkIds` is the id set of the revision's hunks. `chapter_hunks` has
+ * no SQL foreign key on `hunk_id` (hunks' PK is composite), so this is the
+ * "application code enforces the invariant" the migration delegates to: a
+ * chapter can only reference a hunk in its own revision. `fileBasedChapters`
+ * satisfies it by construction; the LLM writer (T2.x) feeds ids parsed from
+ * model output, where this guard turns a hallucinated id into a loud failure
+ * inside the transaction instead of a silently missing hunk in the UI.
  */
 export function insertChapters(
   db: Database,
   revisionId: number,
   pullId: number,
   chapters: readonly FileChapter[],
+  revisionHunkIds: ReadonlySet<string>,
 ): void {
   const insertChapter = db.query<
     { id: number },
@@ -253,6 +263,10 @@ export function insertChapters(
   );
   for (const ch of chapters) {
     const row = insertChapter.get(revisionId, pullId, ch.marker, ch.title, ch.summary, ch.order)!;
-    ch.hunkIds.forEach((hunkId, i) => insertLink.run(row.id, hunkId, i + 1));
+    ch.hunkIds.forEach((hid, i) => {
+      if (!revisionHunkIds.has(hid))
+        throw new Error(`chapter references hunk ${hid} not in revision ${revisionId}`);
+      insertLink.run(row.id, hid, i + 1);
+    });
   }
 }

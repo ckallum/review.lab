@@ -31,7 +31,7 @@ const titles = (hunks: ParsedHunk[]) => fileBasedChapters(hunks).map((c) => c.ti
 const markers = (hunks: ParsedHunk[]) => fileBasedChapters(hunks).map((c) => c.marker);
 
 // ---------------------------------------------------------------------------
-// Grouping — the design-panel test matrix (24 vectors).
+// Grouping — the design-panel test matrix plus edge cases surfaced in review.
 // ---------------------------------------------------------------------------
 describe('fileBasedChapters — grouping', () => {
   it('empty_input → no chapters', () => {
@@ -323,18 +323,27 @@ function freshDb(): Database {
 }
 
 describe('insertChapters', () => {
-  it('writes chapters and their ordered hunk links', () => {
-    const db = freshDb();
+  // A throwaway pull (id 1) precedes the real one (id 2) so the revision hangs
+  // off pull_id 2 with revision_id 1 — distinct values, so transposing the
+  // revisionId/pullId args would write the wrong column and fail the assertion.
+  function seedRevision(db: Database): { revisionId: number; pullId: number } {
+    db.run(`INSERT INTO pulls (branch, base) VALUES ('throwaway', 'main')`);
     db.run(`INSERT INTO pulls (branch, base) VALUES ('feature', 'main')`);
     db.run(
       `INSERT INTO revisions (pull_id, number, git_head_sha, git_base_sha, diff_hash)
-       VALUES (1, 1, 'head', 'base', 'hash')`,
+       VALUES (2, 1, 'head', 'base', 'hash')`,
     );
+    return { revisionId: 1, pullId: 2 };
+  }
+
+  it('writes chapters and their ordered hunk links under the right ids', () => {
+    const db = freshDb();
+    const { revisionId, pullId } = seedRevision(db);
     const chapters: FileChapter[] = [
       { marker: '§ 01', title: 'src · .ts', summary: null, order: 1, hunkIds: ['id-a', 'id-b'] },
       { marker: '§ 02', title: '(root) · .md', summary: null, order: 2, hunkIds: ['id-c'] },
     ];
-    insertChapters(db, 1, 1, chapters);
+    insertChapters(db, revisionId, pullId, chapters, new Set(['id-a', 'id-b', 'id-c']));
 
     const rows = db
       .query<
@@ -343,12 +352,13 @@ describe('insertChapters', () => {
           title: string;
           summary: string | null;
           order: number;
+          revision_id: number;
           pull_id: number;
           inherited_from_chapter_id: number | null;
         },
         []
       >(
-        'SELECT marker, title, summary, "order", pull_id, inherited_from_chapter_id FROM chapters ORDER BY "order"',
+        'SELECT marker, title, summary, "order", revision_id, pull_id, inherited_from_chapter_id FROM chapters ORDER BY "order"',
       )
       .all();
     expect(rows).toEqual([
@@ -357,7 +367,8 @@ describe('insertChapters', () => {
         title: 'src · .ts',
         summary: null,
         order: 1,
-        pull_id: 1,
+        revision_id: 1,
+        pull_id: 2,
         inherited_from_chapter_id: null,
       },
       {
@@ -365,7 +376,8 @@ describe('insertChapters', () => {
         title: '(root) · .md',
         summary: null,
         order: 2,
-        pull_id: 1,
+        revision_id: 1,
+        pull_id: 2,
         inherited_from_chapter_id: null,
       },
     ]);
@@ -382,6 +394,18 @@ describe('insertChapters', () => {
       { hunk_id: 'id-b', order: 2 },
       { hunk_id: 'id-c', order: 1 },
     ]);
+  });
+
+  it('rejects a chapter that references a hunk outside the revision', () => {
+    const db = freshDb();
+    const { revisionId, pullId } = seedRevision(db);
+    const chapters: FileChapter[] = [
+      { marker: '§ 01', title: 'src · .ts', summary: null, order: 1, hunkIds: ['real', 'ghost'] },
+    ];
+    // The schema omits the chapter_hunks→hunks FK; this is the app-code guard.
+    expect(() => insertChapters(db, revisionId, pullId, chapters, new Set(['real']))).toThrow(
+      /not in revision/,
+    );
   });
 });
 
@@ -407,10 +431,21 @@ describe('createRevision → file-based chapters', () => {
     const links = db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM chapter_hunks').get()!.n;
     expect(links).toBe(3);
     // Every persisted chapter belongs to the created revision.
-    const orphan = db
+    const orphanChapters = db
       .query<{ n: number }, []>('SELECT COUNT(*) AS n FROM chapters WHERE revision_id != 1')
       .get()!.n;
-    expect(orphan).toBe(0);
+    expect(orphanChapters).toBe(0);
+    // Every chapter_hunks row resolves to a real hunk IN THIS revision — the
+    // invariant the schema delegates to insertChapters (no SQL FK on hunk_id).
+    const orphanLinks = db
+      .query<{ n: number }, []>(
+        `SELECT COUNT(*) AS n FROM chapter_hunks ch
+         JOIN chapters c ON c.id = ch.chapter_id
+         LEFT JOIN hunks h ON h.id = ch.hunk_id AND h.revision_id = c.revision_id
+         WHERE h.id IS NULL`,
+      )
+      .get()!.n;
+    expect(orphanLinks).toBe(0);
   });
 
   it('a duplicate re-publish adds no new chapters', () => {

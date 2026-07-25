@@ -216,4 +216,25 @@ describe('dedupeHunks', () => {
     expect(reverse).toEqual(forward);
     expect(forward).toEqual([at(5)]);
   });
+
+  it('returns a canonical array order — sequence is a pure function of the set', () => {
+    const h = (filePath: string, startLine: number): ParsedHunk => {
+      const content = `+${filePath}#${startLine}`;
+      return {
+        id: hunkId(filePath, content),
+        filePath,
+        startLine,
+        endLine: startLine,
+        content,
+        kind: 'add',
+      };
+    };
+    const a = h('src/a.ts', 1);
+    const b = h('src/a.ts', 40); // same file, later position
+    const c = h('lib/c.ts', 1);
+    const sorted = [c, a, b]; // (filePath, startLine): lib/c.ts, src/a.ts@1, src/a.ts@40
+    expect(dedupeHunks([a, b, c])).toEqual(sorted);
+    expect(dedupeHunks([c, b, a])).toEqual(sorted); // any permutation → identical
+    expect(dedupeHunks([b, c, a])).toEqual(sorted);
+  });
 });

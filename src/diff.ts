@@ -63,15 +63,21 @@ export function diffHash(hunkIds: readonly string[]): string {
 }
 
 /**
- * Collapse hunks to one per content-hash `id`, choosing a canonical
- * representative so the result is a pure function of the input SET, not its
- * order. Two hunks can share an `id` — byte-identical content at the same path —
- * yet sit at different line ranges, because `id` excludes line numbers by
- * design (see `hunkId`). Keeping the earliest occurrence (smallest `startLine`,
- * then `endLine`) makes every downstream step that reads those line numbers
- * (chapter hunk ordering, the `unchanged` bucket's reported position)
- * order-independent. A plain last-write-wins `Map` would let input order pick
- * the survivor and silently break that determinism.
+ * Collapse hunks to one per content-hash `id`, returning them in a canonical
+ * order so the whole result — both membership AND sequence — is a pure function
+ * of the input SET, not its order.
+ *
+ * - Two hunks can share an `id` — byte-identical content at the same path — yet
+ *   sit at different line ranges, because `id` excludes line numbers by design
+ *   (see `hunkId`). The survivor is the earliest occurrence (smallest
+ *   `startLine`, then `endLine`).
+ * - The returned array is sorted by `(filePath, startLine, endLine, id)`, not
+ *   left in Map first-insertion (i.e. input) order. Callers that render this
+ *   sequence — `diffRevisions`' buckets (→ T1.10), the persisted `hunks` row
+ *   order — are then order-independent between two publishes of the same set.
+ *
+ * A plain last-write-wins `Map` would let input order pick both the survivor and
+ * the sequence, silently breaking that determinism.
  */
 export function dedupeHunks(hunks: readonly ParsedHunk[]): ParsedHunk[] {
   const byId = new Map<string, ParsedHunk>();
@@ -85,7 +91,12 @@ export function dedupeHunks(hunks: readonly ParsedHunk[]): ParsedHunk[] {
       byId.set(h.id, h);
     }
   }
-  return [...byId.values()];
+  return [...byId.values()].sort((a, b) => {
+    if (a.filePath !== b.filePath) return a.filePath < b.filePath ? -1 : 1;
+    if (a.startLine !== b.startLine) return a.startLine - b.startLine;
+    if (a.endLine !== b.endLine) return a.endLine - b.endLine;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
 }
 
 /** The code delta between two revisions, keyed by content-hash `id`

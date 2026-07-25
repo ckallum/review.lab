@@ -124,8 +124,9 @@ const NOW_SQL = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
  * re-running `publish` without changes can't mint a duplicate revision.
  *
  * Writer invariants enforced here (design.md § Writer invariants):
- * - `hunks.pull_id` is the looked-up/created pull id, never trusted from the
- *   payload, so a hunk can't be filed under a different pull than its revision.
+ * - `hunks.pull_id` and `chapters.pull_id` / `chapters.revision_id` are the
+ *   looked-up/created ids, never trusted from the payload, so a row can't be
+ *   filed under a different pull or revision than the one being written.
  * - `pulls.updated_at` is bumped on every write that touches the pull (a new
  *   revision, or a duplicate that retargets the branch's base) but NOT on a
  *   pure duplicate with an unchanged base, which performs no write.
@@ -193,7 +194,8 @@ export function createRevision(db: Database, input: RevisionInput): RevisionResu
   return tx.immediate();
 }
 
-/** Insert the revision row and its (already-deduped) hunks. */
+/** Insert the revision row, its (already-deduped) hunks, and its file-based
+ * chapters (T1.8) — three writes inside the caller's transaction. */
 function insertRevision(
   db: Database,
   pullId: number,
@@ -230,6 +232,10 @@ function insertRevision(
   // deterministic file-grouped chapters here in the same transaction. When the
   // LLM path lands (T2.x) it must gate this write on the missing API key, or
   // clear these rows before inserting its own, to keep one chapter set per
-  // revision. `hunks` is the already-deduped set the rows above were built from.
-  insertChapters(db, revision.id, pullId, fileBasedChapters(hunks));
+  // revision (tracked in issue #33, which also adds the UNIQUE (revision_id,
+  // "order") index that makes a double-write fail loudly). `hunks` is the
+  // already-deduped set the rows above were built from; its id set gates
+  // `chapter_hunks` so a chapter can only reference a hunk in this revision.
+  const hunkIds = new Set(hunks.map((h) => h.id));
+  insertChapters(db, revision.id, pullId, fileBasedChapters(hunks), hunkIds);
 }
