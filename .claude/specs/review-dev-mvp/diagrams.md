@@ -13,13 +13,12 @@ flowchart TD
     C -->|POST /api/pr| D[reviewdev serve]
     D --> E{diff_hash matches<br/>latest revision?}
     E -->|yes| F[Return existing URL<br/>no new revision]
-    E -->|no| G[(SQLite WAL<br/>INSERT revision N+1)]
+    E -->|no| G[(SQLite WAL · one txn<br/>INSERT revision N+1 + hunks<br/>+ file-based chapters — T1.8)]
     G -.->|pull_id + rev + URL| B
     B -->|open browser| H[Browser skeleton]
     H -->|GET SSE /rev/:n/generate| D
     D -->|cost &gt; cap?| Z[Fail: daily cap]
-    D -->|no API key?| Y[File-based chapters]
-    D -->|prompt + prior chapters<br/>+ hash survivors| I[Anthropic<br/>claude-sonnet-4-7]
+    D -->|prompt + prior chapters<br/>+ hash survivors<br/>LLM path, T2.x| I[Anthropic<br/>claude-sonnet-4-7]
     I -->|stream chapters + decisions| D
     D -->|UPSERT scoped to<br/>revision_id| G
     D -->|SSE event per chapter| H
