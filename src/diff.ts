@@ -62,6 +62,43 @@ export function diffHash(hunkIds: readonly string[]): string {
   return createHash('sha256').update(sorted.join('\n')).digest('hex');
 }
 
+/**
+ * Collapse hunks to one per content-hash `id`, returning them in a canonical
+ * order so the whole result — both membership AND sequence — is a pure function
+ * of the input SET, not its order.
+ *
+ * - Two hunks can share an `id` — byte-identical content at the same path — yet
+ *   sit at different line ranges, because `id` excludes line numbers by design
+ *   (see `hunkId`). The survivor is the earliest occurrence (smallest
+ *   `startLine`, then `endLine`).
+ * - The returned array is sorted by `(filePath, startLine, endLine, id)`, not
+ *   left in Map first-insertion (i.e. input) order. Callers that render this
+ *   sequence — `diffRevisions`' buckets (→ T1.10), the persisted `hunks` row
+ *   order — are then order-independent between two publishes of the same set.
+ *
+ * A plain last-write-wins `Map` would let input order pick both the survivor and
+ * the sequence, silently breaking that determinism.
+ */
+export function dedupeHunks(hunks: readonly ParsedHunk[]): ParsedHunk[] {
+  const byId = new Map<string, ParsedHunk>();
+  for (const h of hunks) {
+    const cur = byId.get(h.id);
+    if (
+      !cur ||
+      h.startLine < cur.startLine ||
+      (h.startLine === cur.startLine && h.endLine < cur.endLine)
+    ) {
+      byId.set(h.id, h);
+    }
+  }
+  return [...byId.values()].sort((a, b) => {
+    if (a.filePath !== b.filePath) return a.filePath < b.filePath ? -1 : 1;
+    if (a.startLine !== b.startLine) return a.startLine - b.startLine;
+    if (a.endLine !== b.endLine) return a.endLine - b.endLine;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
+
 /** The code delta between two revisions, keyed by content-hash `id`
  * (design.md § Hunk identity). Each bucket holds whole hunks, not just ids. */
 export interface RevisionDiff {
@@ -93,16 +130,12 @@ export function diffRevisions(
 ): RevisionDiff {
   // Dedupe each side by id up front so the function is total over any input and
   // never double-counts a bucket — a hunk id is a set member (matching
-  // `diffHash`'s own `new Set` and the write path's `dedupeById`). Stored
-  // revisions are already distinct-by-id, so this only guards a caller that
-  // diffs freshly-parsed hunks without a DB round-trip. The Map keeps one hunk
-  // per id; among identical-content hunks the survivor is arbitrary but
-  // equivalent under content-addressing.
-  const distinct = (hs: readonly ParsedHunk[]): ParsedHunk[] => [
-    ...new Map(hs.map((h) => [h.id, h])).values(),
-  ];
-  const p = distinct(prev);
-  const n = distinct(next);
+  // `diffHash`'s own `new Set` and the write path). Stored revisions are already
+  // distinct-by-id, so this only guards a caller that diffs freshly-parsed hunks
+  // without a DB round-trip. `dedupeHunks` picks a canonical survivor per id so
+  // the `unchanged` bucket's reported line range is order-independent.
+  const p = dedupeHunks(prev);
+  const n = dedupeHunks(next);
   const prevIds = new Set(p.map((h) => h.id));
   const nextIds = new Set(n.map((h) => h.id));
   return {
