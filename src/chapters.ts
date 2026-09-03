@@ -271,8 +271,17 @@ export function insertChapters(
         throw new Error(`chapter references hunk ${hid} not in revision ${revisionId}`);
     }
   }
-  for (const ch of chapters) {
-    const row = insertChapter.get(revisionId, pullId, ch.marker, ch.title, ch.summary, ch.order)!;
-    ch.hunkIds.forEach((hid, i) => insertLink.run(row.id, hid, i + 1));
-  }
+  // The write phase is its own transaction so the call is all-or-nothing even
+  // for a caller that opened none: validation can't catch a constraint failure
+  // (two chapters sharing an `order` collide on the UNIQUE index from migration
+  // 002), which would otherwise leave the earlier chapters written. bun:sqlite
+  // nests this as a SAVEPOINT inside `createRevision`'s transaction, so the
+  // error still propagates and rolls the whole revision back there.
+  const write = db.transaction(() => {
+    for (const ch of chapters) {
+      const row = insertChapter.get(revisionId, pullId, ch.marker, ch.title, ch.summary, ch.order)!;
+      ch.hunkIds.forEach((hid, i) => insertLink.run(row.id, hid, i + 1));
+    }
+  });
+  write();
 }

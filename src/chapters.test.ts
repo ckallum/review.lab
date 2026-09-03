@@ -414,6 +414,24 @@ describe('insertChapters', () => {
     expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM chapter_hunks').get()!.n).toBe(0);
   });
 
+  it('rolls back the whole call when two chapters share an order (no outer txn)', () => {
+    const db = freshDb();
+    const { revisionId, pullId } = seedRevision(db);
+    // Duplicate `order` passes hunk-id validation but collides on the UNIQUE
+    // index mid-write. fileBasedChapters can't emit this; the LLM writer (T2.x)
+    // can, and it calls insertChapters directly.
+    const chapters: FileChapter[] = [
+      { marker: '§ 01', title: 'src', summary: null, order: 1, hunkIds: ['h1'] },
+      { marker: '§ 02', title: 'lib', summary: null, order: 1, hunkIds: ['h2'] },
+    ];
+    expect(() => insertChapters(db, revisionId, pullId, chapters, new Set(['h1', 'h2']))).toThrow(
+      /UNIQUE constraint/i,
+    );
+    // The first chapter and its link must not survive the failed call.
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM chapters').get()!.n).toBe(0);
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM chapter_hunks').get()!.n).toBe(0);
+  });
+
   it('the UNIQUE (revision_id, "order") index blocks a second chapter set (migration 002)', () => {
     const db = freshDb();
     const { revisionId, pullId } = seedRevision(db);
