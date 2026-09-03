@@ -396,16 +396,22 @@ describe('insertChapters', () => {
     ]);
   });
 
-  it('rejects a chapter that references a hunk outside the revision', () => {
+  it('rejects a chapter that references a hunk outside the revision, writing nothing', () => {
     const db = freshDb();
     const { revisionId, pullId } = seedRevision(db);
+    // The bad reference sits in the SECOND chapter: without the pre-validation
+    // pass the first chapter's rows would already be written when it throws.
     const chapters: FileChapter[] = [
-      { marker: '§ 01', title: 'src · .ts', summary: null, order: 1, hunkIds: ['real', 'ghost'] },
+      { marker: '§ 01', title: 'src · .ts', summary: null, order: 1, hunkIds: ['real'] },
+      { marker: '§ 02', title: '(root) · .md', summary: null, order: 2, hunkIds: ['ghost'] },
     ];
     // The schema omits the chapter_hunks→hunks FK; this is the app-code guard.
     expect(() => insertChapters(db, revisionId, pullId, chapters, new Set(['real']))).toThrow(
       /not in revision/,
     );
+    // All-or-nothing without relying on the caller's transaction.
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM chapters').get()!.n).toBe(0);
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM chapter_hunks').get()!.n).toBe(0);
   });
 
   it('the UNIQUE (revision_id, "order") index blocks a second chapter set (migration 002)', () => {

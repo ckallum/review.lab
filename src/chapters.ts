@@ -261,12 +261,18 @@ export function insertChapters(
   const insertLink = db.query(
     `INSERT INTO chapter_hunks (chapter_id, hunk_id, "order") VALUES (?, ?, ?)`,
   );
+  // Validate every reference up front: a mid-loop throw would leave the chapter
+  // rows written before it in place. `createRevision`'s transaction rolls those
+  // back, but the pre-pass makes the all-or-nothing guarantee independent of
+  // whether the caller wrapped the call in one.
   for (const ch of chapters) {
-    const row = insertChapter.get(revisionId, pullId, ch.marker, ch.title, ch.summary, ch.order)!;
-    ch.hunkIds.forEach((hid, i) => {
+    for (const hid of ch.hunkIds) {
       if (!revisionHunkIds.has(hid))
         throw new Error(`chapter references hunk ${hid} not in revision ${revisionId}`);
-      insertLink.run(row.id, hid, i + 1);
-    });
+    }
+  }
+  for (const ch of chapters) {
+    const row = insertChapter.get(revisionId, pullId, ch.marker, ch.title, ch.summary, ch.order)!;
+    ch.hunkIds.forEach((hid, i) => insertLink.run(row.id, hid, i + 1));
   }
 }
