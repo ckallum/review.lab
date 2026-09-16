@@ -399,8 +399,8 @@ describe('insertChapters', () => {
   it('rejects a chapter that references a hunk outside the revision, writing nothing', () => {
     const db = freshDb();
     const { revisionId, pullId } = seedRevision(db);
-    // The bad reference sits in the SECOND chapter: without the pre-validation
-    // pass the first chapter's rows would already be written when it throws.
+    // The bad reference sits in the second chapter: the whole call is rejected,
+    // including the valid first chapter.
     const chapters: FileChapter[] = [
       { marker: '§ 01', title: 'src · .ts', summary: null, order: 1, hunkIds: ['real'] },
       { marker: '§ 02', title: '(root) · .md', summary: null, order: 2, hunkIds: ['ghost'] },

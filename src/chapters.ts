@@ -231,10 +231,11 @@ export function fileBasedChapters(hunks: readonly ParsedHunk[]): FileChapter[] {
  * Persist a chapter set for one revision into `chapters` + `chapter_hunks`.
  *
  * `revision_id` and `pull_id` are passed by the caller from the owning revision
- * row — never from any request payload (design.md § Writer invariants). Must run
- * inside the `createRevision` transaction so a partial write rolls back with the
- * revision. `inherited_from_chapter_id` is left NULL: inheritance is a
- * prompt-level LLM hint (SPEC.md § Chapter inheritance), absent from this path.
+ * row — never from any request payload (design.md § Writer invariants). The call
+ * is atomic on its own; inside `createRevision` it nests as a savepoint, so a
+ * failure rolls back the whole revision. `inherited_from_chapter_id` is left
+ * NULL: inheritance is a prompt-level LLM hint (SPEC.md § Chapter inheritance),
+ * absent from this path.
  *
  * `revisionHunkIds` is the id set of the revision's hunks. `chapter_hunks` has
  * no SQL foreign key on `hunk_id` (hunks' PK is composite), so this is the
@@ -261,27 +262,22 @@ export function insertChapters(
   const insertLink = db.query(
     `INSERT INTO chapter_hunks (chapter_id, hunk_id, "order") VALUES (?, ?, ?)`,
   );
-  // Validate every reference up front: a mid-loop throw would leave the chapter
-  // rows written before it in place. `createRevision`'s transaction rolls those
-  // back, but the pre-pass makes the all-or-nothing guarantee independent of
-  // whether the caller wrapped the call in one.
   for (const ch of chapters) {
     for (const hid of ch.hunkIds) {
       if (!revisionHunkIds.has(hid))
         throw new Error(`chapter references hunk ${hid} not in revision ${revisionId}`);
     }
   }
-  // The write phase is its own transaction so the call is all-or-nothing even
-  // for a caller that opened none: validation can't catch a constraint failure
-  // (two chapters sharing an `order` collide on the UNIQUE index from migration
-  // 002), which would otherwise leave the earlier chapters written. bun:sqlite
-  // nests this as a SAVEPOINT inside `createRevision`'s transaction, so the
-  // error still propagates and rolls the whole revision back there.
+  // Own transaction, so the call is all-or-nothing even when the caller opened none:
+  // - validation can't catch a constraint failure — two chapters sharing an `order`
+  //   collide mid-write on migration 002's UNIQUE index
+  // - IMMEDIATE per design.md's publish-write contract; nested inside `createRevision`
+  //   bun:sqlite makes it a SAVEPOINT and the error still propagates
   const write = db.transaction(() => {
     for (const ch of chapters) {
       const row = insertChapter.get(revisionId, pullId, ch.marker, ch.title, ch.summary, ch.order)!;
       ch.hunkIds.forEach((hid, i) => insertLink.run(row.id, hid, i + 1));
     }
   });
-  write();
+  write.immediate();
 }
