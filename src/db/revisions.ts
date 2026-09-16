@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { diffHash, hunkId, type HunkKind, type ParsedHunk } from '../diff.ts';
+import { dedupeHunks, diffHash, hunkId, type HunkKind, type ParsedHunk } from '../diff.ts';
+import { fileBasedChapters, insertChapters } from '../chapters.ts';
 
 /**
  * Revision creation + duplicate detection (T1.5) — the write behind
@@ -123,8 +124,9 @@ const NOW_SQL = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
  * re-running `publish` without changes can't mint a duplicate revision.
  *
  * Writer invariants enforced here (design.md § Writer invariants):
- * - `hunks.pull_id` is the looked-up/created pull id, never trusted from the
- *   payload, so a hunk can't be filed under a different pull than its revision.
+ * - `hunks.pull_id` and `chapters.pull_id` / `chapters.revision_id` are the
+ *   looked-up/created ids, never trusted from the payload, so a row can't be
+ *   filed under a different pull or revision than the one being written.
  * - `pulls.updated_at` is bumped on every write that touches the pull (a new
  *   revision, or a duplicate that retargets the branch's base) but NOT on a
  *   pure duplicate with an unchanged base, which performs no write.
@@ -132,7 +134,10 @@ const NOW_SQL = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
 export function createRevision(db: Database, input: RevisionInput): RevisionResult {
   // De-dup once, up front: `diff_hash` and the inserted hunk rows must agree on
   // the same set, so they derive from one deduped list rather than two passes.
-  const hunks = dedupeById(input.hunks);
+  // `dedupeHunks` also guards the `hunks (id, revision_id)` primary key — a diff
+  // repeating an identical block would otherwise collide — and picks a canonical
+  // survivor so a re-ordered publish resolves to the same rows.
+  const hunks = dedupeHunks(input.hunks);
   const hash = diffHash(hunks.map((h) => h.id));
 
   const tx = db.transaction((): RevisionResult => {
@@ -189,15 +194,8 @@ export function createRevision(db: Database, input: RevisionInput): RevisionResu
   return tx.immediate();
 }
 
-/** Collapse byte-identical hunks (same content-hash id) to a single entry.
- * `hunks` is keyed `(id, revision_id)`, so a diff that repeats an identical
- * block would otherwise hit the primary key; deduping here also keeps the
- * inserted rows aligned with `diff_hash`'s set semantics. */
-function dedupeById(hunks: readonly ParsedHunk[]): ParsedHunk[] {
-  return [...new Map(hunks.map((h) => [h.id, h])).values()];
-}
-
-/** Insert the revision row and its (already-deduped) hunks. */
+/** Insert the revision row, its (already-deduped) hunks, and its file-based
+ * chapters (T1.8) — three writes inside the caller's transaction. */
 function insertRevision(
   db: Database,
   pullId: number,
@@ -229,4 +227,15 @@ function insertRevision(
       h.kind,
     );
   }
+
+  // File-based chapters (T1.8) — week 1 has no LLM, so every new revision gets
+  // deterministic file-grouped chapters here in the same transaction. When the
+  // LLM path lands (T2.x) it must gate this write on the missing API key, or
+  // clear these rows before inserting its own, to keep one chapter set per
+  // revision (tracked in #33); the UNIQUE (revision_id, "order") index from
+  // migration 002 already makes that double-write fail loudly. `hunks` is the
+  // already-deduped set the rows above were built from; its id set gates
+  // `chapter_hunks` so a chapter can only reference a hunk in this revision.
+  const hunkIds = new Set(hunks.map((h) => h.id));
+  insertChapters(db, revision.id, pullId, fileBasedChapters(hunks), hunkIds);
 }

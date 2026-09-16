@@ -99,17 +99,20 @@ describe('applyMigrations against the real 001_initial.sql', () => {
     db.close();
   });
 
-  it('creates the meta table and applies 001_initial.sql', () => {
+  it('creates the meta table and applies the bundled migrations', () => {
     const ran = applyMigrations(db, defaultMigrationsDir());
 
-    expect(ran.map((m) => m.version)).toEqual([1]);
+    expect(ran.map((m) => m.version)).toEqual([1, 2]);
     expect(ran[0]!.filename).toBe('001_initial.sql');
     expect(ran[0]!.applied_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     const after = db
       .query<{ version: number; filename: string }, []>('SELECT version, filename FROM meta')
       .all();
-    expect(after).toEqual([{ version: 1, filename: '001_initial.sql' }]);
+    expect(after).toEqual([
+      { version: 1, filename: '001_initial.sql' },
+      { version: 2, filename: '002_chapters_order_unique.sql' },
+    ]);
   });
 
   it('lands every table from design.md plus the meta tracker', () => {
@@ -145,10 +148,10 @@ describe('applyMigrations against the real 001_initial.sql', () => {
   it('is idempotent — re-running does not re-apply or insert duplicates', () => {
     const first = applyMigrations(db, defaultMigrationsDir());
     const second = applyMigrations(db, defaultMigrationsDir());
-    expect(first).toHaveLength(1);
+    expect(first).toHaveLength(2);
     expect(second).toEqual([]);
     const metaCount = db.query<{ c: number }, []>('SELECT COUNT(*) AS c FROM meta').get()!.c;
-    expect(metaCount).toBe(1);
+    expect(metaCount).toBe(2);
   });
 
   it('enforces foreign keys after openDb (WAL is untestable on :memory:)', () => {
@@ -349,13 +352,13 @@ describe('currentVersion', () => {
 
   it('reports the highest applied migration version', () => {
     applyMigrations(db, defaultMigrationsDir());
-    expect(currentVersion(db)).toBe(1);
+    expect(currentVersion(db)).toBe(2);
   });
 });
 
 describe('latestMigrationVersion', () => {
   it('returns the highest bundled migration version', () => {
-    expect(latestMigrationVersion(defaultMigrationsDir())).toBe(1);
+    expect(latestMigrationVersion(defaultMigrationsDir())).toBe(2);
   });
 
   it('is 0 for a directory with no migrations', () => {
