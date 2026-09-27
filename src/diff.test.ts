@@ -217,6 +217,15 @@ describe('dedupeHunks', () => {
     expect(forward).toEqual([at(5)]);
   });
 
+  it('breaks a full range tie on kind, so the survivor is order-independent', () => {
+    // Same id and range, conflicting kind: reachable only from a POST /api/pr client,
+    // since parseRevisionInput validates kind's vocabulary but not its content.
+    const asMod: ParsedHunk = { ...at(5), kind: 'mod' };
+    const asAdd: ParsedHunk = { ...at(5), kind: 'add' };
+    expect(dedupeHunks([asMod, asAdd])).toEqual([asAdd]);
+    expect(dedupeHunks([asAdd, asMod])).toEqual([asAdd]);
+  });
+
   it('returns a canonical array order — sequence is a pure function of the set', () => {
     const h = (filePath: string, startLine: number): ParsedHunk => {
       const content = `+${filePath}#${startLine}`;

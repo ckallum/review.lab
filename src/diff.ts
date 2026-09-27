@@ -70,7 +70,8 @@ export function diffHash(hunkIds: readonly string[]): string {
  * - Two hunks can share an `id` — byte-identical content at the same path — yet
  *   sit at different line ranges, because `id` excludes line numbers by design
  *   (see `hunkId`). The survivor is the earliest occurrence (smallest
- *   `startLine`, then `endLine`).
+ *   `startLine`, then `endLine`), then the smallest `kind` — a client-supplied
+ *   `kind` isn't recomputed from content, so equal ranges can still disagree.
  * - The returned array is sorted by `(filePath, startLine, endLine, id)`, not
  *   left in Map first-insertion (i.e. input) order. Callers that render this
  *   sequence — `diffRevisions`' buckets (→ T1.10), the persisted `hunks` row
@@ -86,7 +87,8 @@ export function dedupeHunks(hunks: readonly ParsedHunk[]): ParsedHunk[] {
     if (
       !cur ||
       h.startLine < cur.startLine ||
-      (h.startLine === cur.startLine && h.endLine < cur.endLine)
+      (h.startLine === cur.startLine &&
+        (h.endLine < cur.endLine || (h.endLine === cur.endLine && h.kind < cur.kind)))
     ) {
       byId.set(h.id, h);
     }
