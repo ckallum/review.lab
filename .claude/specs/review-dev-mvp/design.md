@@ -55,7 +55,8 @@ One SQLite DB per repo at `<repo-root>/.reviewdev/db.sqlite`. Path is gitignored
 
 **Indexes (minimum viable):**
 - `hunks(revision_id)`, `hunks(pull_id)`, `hunks(file_path)`
-- `chapters(revision_id)`, `chapter_hunks(hunk_id)` (the composite PK `chapter_hunks(chapter_id, hunk_id)` already serves `WHERE chapter_id = ?` via leading-column prefix scan; no separate `chapter_hunks(chapter_id)` index is needed)
+- `chapters(revision_id, "order")` (unique — one chapter set per revision; migration 002, which dropped 001's `chapters(revision_id)` because this index's leading column still serves `WHERE revision_id = ?`)
+- `chapter_hunks(hunk_id)` (the composite PK `chapter_hunks(chapter_id, hunk_id)` already serves `WHERE chapter_id = ?` via leading-column prefix scan; no separate `chapter_hunks(chapter_id)` index is needed)
 - `comments(revision_id, target_kind, target_id)`
 - `revisions(pull_id, number)` (unique)
 - `approvals(revision_id, chapter_id)` (unique — one signoff per chapter per revision)

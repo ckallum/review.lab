@@ -363,7 +363,7 @@ describe('reviewdev serve (subprocess)', () => {
     const res = await fetch(`http://127.0.0.1:${port}/health`);
     expect(res.status).toBe(200);
     // repo_root identifies which repo this server serves (publish verifies it).
-    expect(await res.json()).toEqual({ ok: true, port, schema_version: 1, repo_root: dir });
+    expect(await res.json()).toEqual({ ok: true, port, schema_version: 2, repo_root: dir });
 
     // Migrations ran against the per-repo DB.
     expect(existsSync(join(dir, '.reviewdev', 'db.sqlite'))).toBe(true);
@@ -404,7 +404,7 @@ describe('reviewdev serve (subprocess)', () => {
       expect(await (await fetch(`http://127.0.0.1:${port}/health`)).json()).toEqual({
         ok: true,
         port,
-        schema_version: 1,
+        schema_version: 2,
         repo_root: dir,
       });
       expect(await (await fetch(`http://127.0.0.1:${PORT_RANGE.start}/`)).text()).toBe('squatter');

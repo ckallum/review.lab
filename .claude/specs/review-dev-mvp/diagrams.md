@@ -13,13 +13,12 @@ flowchart TD
     C -->|POST /api/pr| D[reviewdev serve]
     D --> E{diff_hash matches<br/>latest revision?}
     E -->|yes| F[Return existing URL<br/>no new revision]
-    E -->|no| G[(SQLite WAL<br/>INSERT revision N+1)]
+    E -->|no| G[(SQLite WAL · one txn<br/>INSERT revision N+1 + hunks<br/>+ file-based chapters — T1.8)]
     G -.->|pull_id + rev + URL| B
     B -->|open browser| H[Browser skeleton]
     H -->|GET SSE /rev/:n/generate| D
     D -->|cost &gt; cap?| Z[Fail: daily cap]
-    D -->|no API key?| Y[File-based chapters]
-    D -->|prompt + prior chapters<br/>+ hash survivors| I[Anthropic<br/>claude-sonnet-4-7]
+    D -->|prompt + prior chapters<br/>+ hash survivors<br/>LLM path, T2.x| I[Anthropic<br/>claude-sonnet-4-7]
     I -->|stream chapters + decisions| D
     D -->|UPSERT scoped to<br/>revision_id| G
     D -->|SSE event per chapter| H
@@ -29,7 +28,7 @@ flowchart TD
 - **Duplicate detection.** `diff_hash` over the sorted set of hunk ids. If a re-publish hashes identically to the latest revision, no new row is inserted — `publish` just returns the existing URL.
 - **Inheritance hint.** The prompt to Anthropic includes (a) the prior revision's chapter titles + (b) which of its hunks survived to this revision by content hash. Instructs the model to reuse titles/groupings where every underlying hunk is unchanged.
 - **No supersedes.** Two overlapping publishes both succeed and each get their own SSE stream — independent revisions, no cancellation.
-- **Writers.** `reviewdev publish` writes the revision row + hunks + sessions. `reviewdev serve` (SSE handler) writes chapters + decisions + usage. The two never contend.
+- **Writers.** `reviewdev publish` sends the revision row + hunks + sessions to `reviewdev serve`, which writes them. Chapters have two writers, and they target the **same** revision: the file-based grouping written synchronously in the `POST /api/pr` transaction (T1.8, no LLM — today the only chapter writer, and unconditional), and the SSE `/generate` handler for the LLM path (chapters + decisions + usage — T2.5). Because both address one revision's chapters, T2.x must either gate the file-based write on a missing `ANTHROPIC_API_KEY` or clear the rows before inserting its own (#33); the `UNIQUE (revision_id, "order")` index (migration 002) makes an ungated double-write fail inside the transaction rather than silently doubling the table of contents. Revision rows and hunks have a single writer and never contend.
 
 ## User Flow — viewing a PR with multiple revisions
 

@@ -294,7 +294,7 @@ Reverses the flow. From the review surface, "Resume from step 3" copies a `claud
 **Leading (per-PR usage):**
 - Time-to-URL under 2 seconds (p95) on a 50-hunk PR.
 - Time-to-readable-chapters measured in week 1, target band 15–25 seconds (p95).
-- 3–7 chapters generated per revision.
+- 3–7 chapters generated per revision (a target band, not a hard guarantee — the file-based fallback caps at 7 but yields fewer for a diff spanning under 3 dir/ext cells; see tasks.md T1.8).
 - Daily LLM cost under $5 (p95) during dogfood.
 
 **Lagging (over weeks of personal use):**
