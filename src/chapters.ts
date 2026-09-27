@@ -230,12 +230,14 @@ export function fileBasedChapters(hunks: readonly ParsedHunk[]): FileChapter[] {
 /**
  * Persist a chapter set for one revision into `chapters` + `chapter_hunks`.
  *
- * `revision_id` and `pull_id` are passed by the caller from the owning revision
- * row — never from any request payload (design.md § Writer invariants). The call
- * is atomic on its own; inside `createRevision` it nests as a savepoint, so a
- * failure rolls back the whole revision. `inherited_from_chapter_id` is left
- * NULL: inheritance is a prompt-level LLM hint (SPEC.md § Chapter inheritance),
- * absent from this path.
+ * - `pull_id` is read from the revision row inside the write transaction, never
+ *   supplied by the caller (design.md § Writer invariants), so a chapter can't be
+ *   filed under a different pull than its revision.
+ * - Atomic on its own; inside `createRevision` it nests as a savepoint, so a
+ *   failure rolls back the whole revision.
+ * - Throws if `revisionId` names no revision.
+ * - `inherited_from_chapter_id` stays NULL: inheritance is a prompt-level LLM hint
+ *   (SPEC.md § Chapter inheritance), absent from this path.
  *
  * `revisionHunkIds` is the id set of the revision's hunks. `chapter_hunks` has
  * no SQL foreign key on `hunk_id` (hunks' PK is composite), so this is the
@@ -248,7 +250,6 @@ export function fileBasedChapters(hunks: readonly ParsedHunk[]): FileChapter[] {
 export function insertChapters(
   db: Database,
   revisionId: number,
-  pullId: number,
   chapters: readonly FileChapter[],
   revisionHunkIds: ReadonlySet<string>,
 ): void {
@@ -274,8 +275,19 @@ export function insertChapters(
   // - IMMEDIATE per design.md's publish-write contract; nested inside `createRevision`
   //   bun:sqlite makes it a SAVEPOINT and the error still propagates
   const write = db.transaction(() => {
+    const owner = db
+      .query<{ pull_id: number }, [number]>('SELECT pull_id FROM revisions WHERE id = ?')
+      .get(revisionId);
+    if (!owner) throw new Error(`revision ${revisionId} not found`);
     for (const ch of chapters) {
-      const row = insertChapter.get(revisionId, pullId, ch.marker, ch.title, ch.summary, ch.order)!;
+      const row = insertChapter.get(
+        revisionId,
+        owner.pull_id,
+        ch.marker,
+        ch.title,
+        ch.summary,
+        ch.order,
+      )!;
       ch.hunkIds.forEach((hid, i) => insertLink.run(row.id, hid, i + 1));
     }
   });

@@ -237,5 +237,5 @@ function insertRevision(
   // already-deduped set the rows above were built from; its id set gates
   // `chapter_hunks` so a chapter can only reference a hunk in this revision.
   const hunkIds = new Set(hunks.map((h) => h.id));
-  insertChapters(db, revision.id, pullId, fileBasedChapters(hunks), hunkIds);
+  insertChapters(db, revision.id, fileBasedChapters(hunks), hunkIds);
 }

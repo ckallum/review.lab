@@ -323,9 +323,9 @@ function freshDb(): Database {
 }
 
 describe('insertChapters', () => {
-  // A throwaway pull (id 1) precedes the real one (id 2) so the revision hangs
-  // off pull_id 2 with revision_id 1 — distinct values, so transposing the
-  // revisionId/pullId args would write the wrong column and fail the assertion.
+  // A throwaway pull (id 1) precedes the real one (id 2), so the revision hangs off
+  // pull 2. A chapters.pull_id of 2 proves it was read from the revision rather
+  // than defaulted to the first pull.
   function seedRevision(db: Database): { revisionId: number; pullId: number } {
     db.run(`INSERT INTO pulls (branch, base) VALUES ('throwaway', 'main')`);
     db.run(`INSERT INTO pulls (branch, base) VALUES ('feature', 'main')`);
@@ -338,12 +338,12 @@ describe('insertChapters', () => {
 
   it('writes chapters and their ordered hunk links under the right ids', () => {
     const db = freshDb();
-    const { revisionId, pullId } = seedRevision(db);
+    const { revisionId } = seedRevision(db);
     const chapters: FileChapter[] = [
       { marker: '§ 01', title: 'src · .ts', summary: null, order: 1, hunkIds: ['id-a', 'id-b'] },
       { marker: '§ 02', title: '(root) · .md', summary: null, order: 2, hunkIds: ['id-c'] },
     ];
-    insertChapters(db, revisionId, pullId, chapters, new Set(['id-a', 'id-b', 'id-c']));
+    insertChapters(db, revisionId, chapters, new Set(['id-a', 'id-b', 'id-c']));
 
     const rows = db
       .query<
@@ -398,7 +398,7 @@ describe('insertChapters', () => {
 
   it('rejects a chapter that references a hunk outside the revision, writing nothing', () => {
     const db = freshDb();
-    const { revisionId, pullId } = seedRevision(db);
+    const { revisionId } = seedRevision(db);
     // The bad reference sits in the second chapter: the whole call is rejected,
     // including the valid first chapter.
     const chapters: FileChapter[] = [
@@ -406,7 +406,7 @@ describe('insertChapters', () => {
       { marker: '§ 02', title: '(root) · .md', summary: null, order: 2, hunkIds: ['ghost'] },
     ];
     // The schema omits the chapter_hunks→hunks FK; this is the app-code guard.
-    expect(() => insertChapters(db, revisionId, pullId, chapters, new Set(['real']))).toThrow(
+    expect(() => insertChapters(db, revisionId, chapters, new Set(['real']))).toThrow(
       /not in revision/,
     );
     // All-or-nothing without relying on the caller's transaction.
@@ -416,7 +416,7 @@ describe('insertChapters', () => {
 
   it('rolls back the whole call when two chapters share an order (no outer txn)', () => {
     const db = freshDb();
-    const { revisionId, pullId } = seedRevision(db);
+    const { revisionId } = seedRevision(db);
     // Duplicate `order` passes hunk-id validation but collides on the UNIQUE
     // index mid-write. fileBasedChapters can't emit this; the LLM writer (T2.x)
     // can, and it calls insertChapters directly.
@@ -424,7 +424,7 @@ describe('insertChapters', () => {
       { marker: '§ 01', title: 'src', summary: null, order: 1, hunkIds: ['h1'] },
       { marker: '§ 02', title: 'lib', summary: null, order: 1, hunkIds: ['h2'] },
     ];
-    expect(() => insertChapters(db, revisionId, pullId, chapters, new Set(['h1', 'h2']))).toThrow(
+    expect(() => insertChapters(db, revisionId, chapters, new Set(['h1', 'h2']))).toThrow(
       /UNIQUE constraint/i,
     );
     // The first chapter and its link must not survive the failed call.
@@ -432,19 +432,29 @@ describe('insertChapters', () => {
     expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM chapter_hunks').get()!.n).toBe(0);
   });
 
+  it('rejects an unknown revision, writing nothing', () => {
+    const db = freshDb();
+    seedRevision(db);
+    const chapters: FileChapter[] = [
+      { marker: '§ 01', title: 'src', summary: null, order: 1, hunkIds: ['h1'] },
+    ];
+    expect(() => insertChapters(db, 99, chapters, new Set(['h1']))).toThrow(
+      /revision 99 not found/,
+    );
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM chapters').get()!.n).toBe(0);
+  });
+
   it('the UNIQUE (revision_id, "order") index blocks a second chapter set (migration 002)', () => {
     const db = freshDb();
-    const { revisionId, pullId } = seedRevision(db);
+    const { revisionId } = seedRevision(db);
     const chapters: FileChapter[] = [
       { marker: '§ 01', title: 'src', summary: null, order: 1, hunkIds: ['h1'] },
     ];
     const ids = new Set(['h1']);
-    insertChapters(db, revisionId, pullId, chapters, ids);
+    insertChapters(db, revisionId, chapters, ids);
     // A second write for the same revision (the T2.x double-write mistake) hits
     // the unique index and fails instead of silently doubling the TOC.
-    expect(() => insertChapters(db, revisionId, pullId, chapters, ids)).toThrow(
-      /UNIQUE constraint/i,
-    );
+    expect(() => insertChapters(db, revisionId, chapters, ids)).toThrow(/UNIQUE constraint/i);
   });
 });
 
