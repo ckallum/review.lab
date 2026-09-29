@@ -94,7 +94,7 @@ All endpoints served by `reviewdev serve` on the per-repo port. JSON for data en
 | `GET` | `/api/pr/:id/rev/:n` | JSON for a pinned revision (T1.9): `200` [revision view](#revision-view-json), `400`/`404`/`500` error bodies. |
 | `GET` | `/api/pr/:id/revisions` | List revisions in order. |
 | `GET` | `/api/pr/:id/comment-counts` | Counts by revision — drives the header pill. |
-| `POST` | `/api/pr` | Upsert pull + create revision (called by CLI). Returns `{pull_id, revision_number, url}`. |
+| `POST` | `/api/pr` | Upsert pull + create revision (called by CLI). Returns `{pull_id, revision_number, url}`. The body must be declared `application/json`, else `415` (T1.9). |
 | `POST` | `/api/pr/:id/rev/:n/comments` | Add a comment (hunk/chapter/PR-scoped). |
 | `POST` | `/api/pr/:id/rev/:n/chapters/:cid/approve` | Approve a chapter on a revision. |
 | `POST` | `/api/pr/:id/rev/:n/generate` | SSE stream — chapter generation + decisions. |
@@ -158,6 +158,7 @@ data: { "message": "…", "code": "rate_limit | over_cap | …" }
 
 - **Single user, localhost only.** No auth surface. The server binds `127.0.0.1` (not `0.0.0.0`) — specifically the IPv4 address rather than the `localhost` hostname, which resolves to both `127.0.0.1` and `::1` and would let two serve processes split across address families and defeat the port probe.
 - **Host allowlist.** Every route answers only `Host: 127.0.0.1` or `localhost`; anything else gets `403` (T1.9). Binding `127.0.0.1` alone doesn't stop DNS rebinding, where a foreign page resolves its own hostname to `127.0.0.1` and reads the source-returning `GET` routes. The rebound request still carries the foreign `Host`, so it's rejected.
+- **Cross-site writes.** `POST /api/pr` answers `415` unless the body is declared `application/json` (T1.9). A foreign page can send a `text/plain` or form POST without a CORS preflight, and its `Host` is `127.0.0.1`, so the Host allowlist alone doesn't stop it. A JSON POST forces the preflight, which fails because no CORS headers are ever sent.
 - **Response headers.** Every response, errors included, carries `Cache-Control: no-store` (revision JSON holds repo source, and the `/pr/:id` redirect target moves on each publish) and `X-Content-Type-Options: nosniff`. No CORS headers are ever sent.
 - **No telemetry.** `usage` table is local-only.
 - **API key in env, never persisted.** `ANTHROPIC_API_KEY` never written to disk by reviewdev.

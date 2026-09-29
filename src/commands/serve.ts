@@ -139,6 +139,13 @@ export function createApp(deps: {
   // the server owns the write so revision numbering and duplicate detection
   // happen against one DB handle.
   app.post('/api/pr', async (c) => {
+    // A cross-site page can send a text/plain or form POST without a CORS preflight,
+    // and its Host is 127.0.0.1. Requiring JSON forces the preflight, which fails
+    // because no CORS headers are ever sent.
+    const mediaType = (c.req.header('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+    if (mediaType !== 'application/json') {
+      return c.json({ error: 'content-type must be application/json' }, 415);
+    }
     let raw: unknown;
     try {
       raw = await c.req.json();

@@ -276,6 +276,36 @@ describe('createApp — POST /api/pr', () => {
     expect(res.status).toBe(400);
   });
 
+  it('415s a body that is not declared application/json, writing nothing', async () => {
+    const db = freshDb();
+    const app = makeApp({ db });
+    const body = JSON.stringify({
+      branch: 'feature',
+      base: 'main',
+      headSha: 'h',
+      baseSha: 'b',
+      hunks: [hunk('a.ts', '+a')],
+    });
+    // text/plain and form posts are what a cross-site page can send without a preflight.
+    for (const type of ['text/plain', 'application/x-www-form-urlencoded', undefined]) {
+      const res = await app.request('/api/pr', {
+        method: 'POST',
+        headers: type ? { 'content-type': type } : {},
+        body,
+      });
+      expect(res.status, String(type)).toBe(415);
+      expect(await res.json()).toEqual({ error: 'content-type must be application/json' });
+    }
+    expect(db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM pulls').get()!.n).toBe(0);
+
+    const ok = await app.request('/api/pr', {
+      method: 'POST',
+      headers: { 'content-type': 'Application/JSON; charset=utf-8' },
+      body,
+    });
+    expect(ok.status).toBe(200);
+  });
+
   it('answers a logged JSON 500 with request context when the write throws', async () => {
     const db = freshDb();
     const calls: Array<{ err: unknown; context?: Record<string, unknown> }> = [];
