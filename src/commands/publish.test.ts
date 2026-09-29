@@ -7,7 +7,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { probeServer, resolveDiff, uploadRevision, type PublishPayload } from './publish.ts';
 import { openDb } from '../db/migrate.ts';
 import { dbPath, ensureReviewDevDir, writePortFile } from '../repo.ts';
-import type { GitRunner } from '../git.ts';
+import { diffRangeArgs, type GitRunner } from '../git.ts';
 
 const cliPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'cli.ts');
 
@@ -152,7 +152,7 @@ describe('resolveDiff', () => {
         'merge-base HEAD origin/main': 'cafe1234',
         'rev-parse --abbrev-ref HEAD': 'feature',
         'status --porcelain': '',
-        'diff cafe1234..HEAD': diff,
+        [diffRangeArgs('cafe1234').join(' ')]: diff,
       };
       if (!(key in table)) throw new Error(`unexpected git call: ${key}`);
       return table[key]!;
@@ -182,7 +182,7 @@ describe('resolveDiff', () => {
       if (key === 'rev-parse HEAD') return 'h';
       if (key === 'merge-base HEAD origin/develop') return 'b';
       if (key === 'rev-parse --abbrev-ref HEAD') return 'feature';
-      if (key === 'diff b..HEAD') return '';
+      if (key === diffRangeArgs('b').join(' ')) return '';
       throw new Error(`unexpected git call: ${key}`);
     }) as GitRunner;
 
@@ -223,7 +223,7 @@ describe('resolveDiff', () => {
       if (key === 'rev-parse HEAD') return 'h';
       if (key === 'merge-base HEAD origin/main') return 'b';
       if (key === 'rev-parse --abbrev-ref HEAD') return 'feature';
-      if (key === 'diff b..HEAD') return '';
+      if (key === diffRangeArgs('b').join(' ')) return '';
       throw new Error(`unexpected git call: ${key}`);
     }) as GitRunner;
 

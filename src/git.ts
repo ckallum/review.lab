@@ -9,19 +9,32 @@ import { statSync, utimesSync, writeFileSync } from 'node:fs';
  * implementation; tests pass their own.
  */
 
-/** Runs a git subcommand and returns trimmed stdout; throws on non-zero exit. */
-export type GitRunner = (args: readonly string[], opts?: { timeoutMs?: number }) => string;
+/**
+ * Runs a git subcommand and returns its stdout; throws on non-zero exit.
+ * - stdout is trimmed unless `raw` is set. A diff needs `raw`: its trailing
+ *   whitespace (a blank context line, a trailing space) is content.
+ */
+export type GitRunner = (
+  args: readonly string[],
+  opts?: { timeoutMs?: number; raw?: boolean },
+) => string;
+
+// execFileSync's 1 MiB default would fail a publish whose diff touches a lockfile.
+const GIT_MAX_BUFFER = 256 * 1024 * 1024;
 
 export function makeGitRunner(cwd: string): GitRunner {
-  return (args, opts) =>
-    execFileSync('git', args as string[], {
+  return (args, opts) => {
+    const out = execFileSync('git', args as string[], {
       cwd,
       encoding: 'utf8',
       // Capture stderr (don't inherit) so a failure's reason rides on the
       // thrown error instead of leaking to the user's console.
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: opts?.timeoutMs,
-    }).trim();
+      maxBuffer: GIT_MAX_BUFFER,
+    });
+    return opts?.raw ? out : out.trim();
+  };
 }
 
 const FETCH_TIMEOUT_MS = 10_000; // SPEC.md § Failure modes: 10s, then stale base.
@@ -142,9 +155,45 @@ export function resolveEndpoints(
   return { headSha, baseSha };
 }
 
-/** `git diff <baseSha>..HEAD` — the committed delta to publish. */
+/**
+ * `git diff <baseSha>..HEAD` — the committed delta to publish, untrimmed.
+ *
+ * Hunk ids and the page's line numbers are computed from this text, so every
+ * user config that changes the patch text is pinned to git's default:
+ * - `diff.suppressBlankEmpty` would drop blank context lines, shifting every later number.
+ * - colour, an external diff or textconv would replace the patch text.
+ * - `diff.noprefix` / `diff.mnemonicPrefix` would break the `a/`/`b/` strip in parseDiff.
+ * - `diff.relative` would limit the diff to the cwd's subtree.
+ * - `diff.context`, `diff.interHunkContext`, `diff.algorithm`, `diff.indentHeuristic`,
+ *   `diff.renames` and `core.quotePath` would change hunk bodies or paths, and so ids.
+ */
 export function diffRange(git: GitRunner, baseSha: string): string {
-  return git(['diff', `${baseSha}..HEAD`]);
+  return git(diffRangeArgs(baseSha), { raw: true });
+}
+
+/** The git arguments `diffRange` runs, for fakes keyed on the exact command. */
+export function diffRangeArgs(baseSha: string): string[] {
+  return [
+    '-c',
+    'diff.suppressBlankEmpty=false',
+    '-c',
+    'core.quotePath=true',
+    // Config, not --no-relative: that flag needs git 2.28, and older git ignores unknown keys.
+    '-c',
+    'diff.relative=false',
+    'diff',
+    '--no-color',
+    '--no-ext-diff',
+    '--no-textconv',
+    '--src-prefix=a/',
+    '--dst-prefix=b/',
+    '--unified=3',
+    '--inter-hunk-context=0',
+    '--diff-algorithm=myers',
+    '--indent-heuristic',
+    '--find-renames',
+    `${baseSha}..HEAD`,
+  ];
 }
 
 /** The current branch name — the key the server upserts a `pull` under (T1.5).
