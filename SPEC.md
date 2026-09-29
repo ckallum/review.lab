@@ -90,7 +90,7 @@ Rules:
 
 - **Each publish creates a new revision** with `number = max(prior) + 1`, unless the diff exactly matches the latest revision's hunks — in that case, no new revision is created and `publish` returns the latest URL. (Prevents accidental duplicate revisions when re-running publish without changes.)
 - **The latest revision is the default view.** `/pr/:id` redirects to `/pr/:id/rev/<latest>`.
-- **Old browser tabs pin to the revision they were opened on.** No supersedes, no flicker — the tab from yesterday keeps showing yesterday's revision until you reload.
+- **Old browser tabs pin to the revision they were opened on.** No supersedes, no flicker — the tab from yesterday keeps showing yesterday's revision, and reloading keeps it there, because the URL is `/rev/N`. When a newer revision exists, the header says "Revision N of M · Go to latest"; `/pr/:id` always lands on the latest. *(Amended 2026-09-29, T1.9: was "until you reload". See [tasks.md](.claude/specs/review-dev-mvp/tasks.md) T1.9 addendum.)*
 - **Chapter inheritance is a soft prompt-level hint.** The chapter-generation call for revision N is shown the prior revision's chapter titles and which of its hunks (by content hash) still exist in N. The prompt instructs: *"reuse a title/grouping where every underlying hunk is unchanged; regenerate otherwise."* No explicit lock — the LLM decides.
 - **Comments live on the revision they were left on.** A header pill on the latest revision ("4 comments on earlier revisions · view") opens a revision picker. No migration logic.
 
@@ -258,7 +258,8 @@ One fixture-based suite lands before week 1 ships: `hunks.test.ts`. *(Amended 20
 | Duplicate publish (same diff) | User re-runs without commits | ✓ via integration | `diff_hash` matches latest revision; return existing URL | No new revision; same URL |
 | Concurrent publish (different diffs) | Two terminals publish same branch | ✓ via integration | Both succeed; revisions assigned in commit order | Both revisions readable |
 | Daily cost cap hit | $REVIEWDEV_DAILY_CAP reached | ✓ via unit | Publish fails before LLM call | "Daily cap reached, override via REVIEWDEV_DAILY_CAP=N" |
-| Stale browser tab on old revision | User left a tab open from yesterday | ✗ — manual | Tab keeps showing that revision. Reload → latest. | Explicit, deterministic — by design |
+| Stale browser tab on old revision | User left a tab open from yesterday | ✓ via page test | Tab keeps showing that revision, reload included (amended 2026-09-29, T1.9; was "Reload → latest"). The header links to the latest. | "Revision N of M · Go to latest" |
+| Revision fetch fails in the browser | Server down, 5xx, timeout, 404, or a malformed response | ✓ via page test | Full-panel error state. Try again for server down, 5xx and timeout; Reload for a malformed response; a link to the latest revision for a 404. Demo data never shows on a `/pr/` URL. | Explicit error screen naming the cause |
 
 No row has *both* "no test" AND "no error handling" AND "silent failure."
 
