@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { Hono } from 'hono';
 import type { Database } from 'bun:sqlite';
 import { fail, type CommandHandler } from '../cli.ts';
@@ -17,6 +18,14 @@ import {
 } from '../repo.ts';
 import { logLine } from '../log.ts';
 import { createRevision, parseRevisionInput } from '../db/revisions.ts';
+import {
+  findRevision,
+  latestRevisionNumber,
+  readRevisionSnapshot,
+  type MissingRevision,
+} from '../db/snapshot.ts';
+import { buildRevisionView } from '../revision-view.ts';
+import { loadIndexHtml } from '../web.ts';
 
 // Ports probed on startup, in order. design.md § Server lifecycle: "No daemon;
 // user runs `reviewdev serve` per repo." One repo per port keeps routing trivial.
@@ -34,11 +43,59 @@ type FetchHandler = (req: Request) => Response | Promise<Response>;
 export type RunningServer = { port: number; stop: () => void };
 export type ServeFn = (port: number, fetch: FetchHandler) => RunningServer;
 
+// Hosts the server answers for; guards against DNS rebinding.
+// - Binding 127.0.0.1 isn't enough: another origin can resolve its own hostname to
+//   127.0.0.1 and read the source-returning GET routes.
+// - A rebound request still carries the foreign Host, so it's rejected here.
+const ALLOWED_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', 'localhost']);
+
+/** null when Bun couldn't build an absolute URL (HTTP/1.0 with no Host, or a malformed Host). */
+function requestHostname(url: string): string | null {
+  return URL.canParse(url) ? new URL(url).hostname : null;
+}
+
+// Every response, errors included, is uncacheable: the /pr/:id redirect target
+// moves on each publish, and revision JSON carries repo source.
+function withResponseHeaders(res: Response): Response {
+  res.headers.set('Cache-Control', 'no-store');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  return res;
+}
+
+/**
+ * Parse a route id segment: a canonical positive integer (no sign, no leading zero,
+ * no exponent), safe as a JS number. Returns null for anything else, so every route
+ * rejects malformed ids with the same 400 rather than a lookup miss.
+ */
+export function parsePositiveIntParam(raw: string): number | null {
+  if (!/^[1-9][0-9]{0,15}$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+/** 404 body for a revision that doesn't exist. `latest_revision_number` is always present. */
+function missingRevisionBody(
+  lookup: MissingRevision,
+  pullId: number,
+  n: number,
+): { error: string; latest_revision_number: number | null } {
+  if (lookup.kind === 'no-pull') {
+    return { error: `pull ${pullId} not found`, latest_revision_number: null };
+  }
+  if (lookup.latest === null) {
+    return { error: `pull ${pullId} has no revisions`, latest_revision_number: null };
+  }
+  return {
+    error: `revision ${n} not found for pull ${pullId}`,
+    latest_revision_number: lookup.latest,
+  };
+}
+
 /**
  * Build the Hono app. `getPort` is read at request time, not bound here,
  * because the listening port isn't known until the probe picks one — the app
  * is constructed before `listenInRange` runs. `db` is the single per-repo
- * handle the publish-writer (`POST /api/pr`) writes through.
+ * handle every route reads and writes through.
  */
 export function createApp(deps: {
   getPort: () => number;
@@ -49,12 +106,26 @@ export function createApp(deps: {
   // not another repo's that happens to hold the same port — which would
   // otherwise route this repo's write into the wrong DB.
   repoRoot: string;
+  // The revision page (web/index.html), read once at serve start. Required: an empty
+  // default would answer every revision URL with a blank page.
+  indexHtml: string;
   // Diagnostic sink for an unexpected route throw (default no-op). `runServe`
   // wires it to the structured log so a failed write leaves a server-side trace
   // (message + stack + request identity) instead of vanishing into a bare 500.
   onError?: (err: unknown, context?: Record<string, unknown>) => void;
 }): Hono {
   const app = new Hono();
+  const repoSlug = basename(deps.repoRoot);
+
+  app.use('*', async (c, next) => {
+    const host = requestHostname(c.req.url);
+    if (host === null || !ALLOWED_HOSTS.has(host)) {
+      return withResponseHeaders(c.json({ error: 'host not allowed' }, 403));
+    }
+    await next();
+    withResponseHeaders(c.res);
+  });
+
   app.get('/health', (c) =>
     c.json({
       ok: true,
@@ -68,6 +139,13 @@ export function createApp(deps: {
   // the server owns the write so revision numbering and duplicate detection
   // happen against one DB handle.
   app.post('/api/pr', async (c) => {
+    // A cross-site page can send a text/plain or form POST without a CORS preflight,
+    // and its Host is 127.0.0.1. Requiring JSON forces the preflight, which fails
+    // because no CORS headers are ever sent.
+    const mediaType = (c.req.header('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+    if (mediaType !== 'application/json') {
+      return c.json({ error: 'content-type must be application/json' }, 415);
+    }
     let raw: unknown;
     try {
       raw = await c.req.json();
@@ -88,6 +166,7 @@ export function createApp(deps: {
       result = createRevision(deps.db, input);
     } catch (err) {
       deps.onError?.(err, {
+        route: 'POST /api/pr',
         branch: input.branch,
         base_sha: input.baseSha,
         head_sha: input.headSha,
@@ -102,12 +181,62 @@ export function createApp(deps: {
     return c.json({ pull_id: result.pullId, revision_number: result.revisionNumber, url });
   });
 
+  // JSON for one pinned revision (T1.9) — what web/index.html renders. A zero-hunk
+  // revision is a 200 (pure-rename and binary-only diffs parse to no hunks); the
+  // page shows it as an explicit empty state.
+  app.get('/api/pr/:id/rev/:n', (c) => {
+    const pullId = parsePositiveIntParam(c.req.param('id'));
+    if (pullId === null) return c.json({ error: 'pull id must be a positive integer' }, 400);
+    const n = parsePositiveIntParam(c.req.param('n'));
+    if (n === null) return c.json({ error: 'revision number must be a positive integer' }, 400);
+    try {
+      const read = readRevisionSnapshot(deps.db, pullId, n);
+      if (!read.ok) return c.json(missingRevisionBody(read.lookup, pullId, n), 404);
+      return c.json(buildRevisionView(read.snapshot, repoSlug));
+    } catch (err) {
+      deps.onError?.(err, { route: 'GET /api/pr/:id/rev/:n', pull_id: pullId, revision_number: n });
+      return c.json({ error: 'internal error reading revision' }, 500);
+    }
+  });
+
+  // The latest revision is the default landing (SPEC.md § Revisions). 302, not 301/308:
+  // the target moves on every publish and must never be cached.
+  app.get('/pr/:id', (c) => {
+    const pullId = parsePositiveIntParam(c.req.param('id'));
+    if (pullId === null) return c.text('pull id must be a positive integer', 400);
+    let latest: number | null;
+    try {
+      latest = latestRevisionNumber(deps.db, pullId);
+    } catch (err) {
+      deps.onError?.(err, { route: 'GET /pr/:id', pull_id: pullId });
+      return c.text('internal error', 500);
+    }
+    if (latest === null) return c.text(`pull ${pullId} not found`, 404);
+    return c.redirect(`/pr/${pullId}/rev/${latest}`, 302);
+  });
+
+  // The page itself, served verbatim. Its status mirrors the revision lookup for the
+  // same ids (200/400/404/500), so curl and scripts see whether the revision exists.
+  // Building the view is left to the JSON route the page fetches, whose own 500
+  // gets the page's error screen.
+  app.get('/pr/:id/rev/:n', (c) => {
+    const pullId = parsePositiveIntParam(c.req.param('id'));
+    const n = parsePositiveIntParam(c.req.param('n'));
+    if (pullId === null || n === null) return c.html(deps.indexHtml, 400);
+    try {
+      return c.html(deps.indexHtml, findRevision(deps.db, pullId, n).kind === 'found' ? 200 : 404);
+    } catch (err) {
+      deps.onError?.(err, { route: 'GET /pr/:id/rev/:n', pull_id: pullId, revision_number: n });
+      return c.html(deps.indexHtml, 500);
+    }
+  });
+
   // Last-resort handler for any OTHER unhandled route throw: log it (so the
   // reason survives) and return a JSON body the CLI can surface, rather than
   // Hono's default bare "500 Internal Server Error" with nothing logged.
   app.onError((err, c) => {
-    deps.onError?.(err);
-    return c.json({ error: 'internal error handling request' }, 500);
+    deps.onError?.(err, { method: c.req.method, path: c.req.path });
+    return withResponseHeaders(c.json({ error: 'internal error handling request' }, 500));
   });
 
   return app;
@@ -201,6 +330,15 @@ export const runServe: CommandHandler = async (_args, io) => {
     return fail(io, err);
   }
 
+  // Before .reviewdev/ is created or the DB opened, so a broken install fails
+  // without side effects.
+  let indexHtml: string;
+  try {
+    indexHtml = loadIndexHtml();
+  } catch (err) {
+    return fail(io, err);
+  }
+
   let db: Database;
   try {
     ensureReviewDevDir(repoRoot);
@@ -242,6 +380,7 @@ export const runServe: CommandHandler = async (_args, io) => {
     schemaVersion: version,
     db,
     repoRoot,
+    indexHtml,
     onError: (err, context) =>
       logLine(io.stdout, 'api.error', {
         message: err instanceof Error ? err.message : String(err),

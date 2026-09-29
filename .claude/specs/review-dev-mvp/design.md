@@ -87,14 +87,14 @@ All endpoints served by `reviewdev serve` on the per-repo port. JSON for data en
 |---|---|---|
 | `GET` | `/health` | Liveness probe (T1.3). Returns `{ok: true, port, schema_version, repo_root}` — `publish` uses it to confirm the server is up, on a compatible schema, AND serving this repo (a stale `.reviewdev/port` could otherwise point at another repo's server; `repo_root` added in T1.5). |
 | `GET` | `/pulls` | Index page — list open PRs (status, branch, title, updated_at, latest_revision_number). |
-| `GET` | `/pr/:id` | Redirects to `/pr/:id/rev/<latest>`. |
-| `GET` | `/pr/:id/rev/:n` | Pinned revision view (HTML, demo Concept 01). |
+| `GET` | `/pr/:id` | `302` to `/pr/:id/rev/<latest>` (T1.9). `text/plain` `400` for a malformed id, `404` for a missing pull or a pull with no revisions. |
+| `GET` | `/pr/:id/rev/:n` | Pinned revision view: `web/index.html` served verbatim (T1.9). The status mirrors the revision lookup for the same ids (`200`/`400`/`404`/`500`); the page fetches the JSON and renders the matching screen, including for a `500` from building the view. |
 | `GET` | `/pr/:id/rev/:n/diff` | Revision diff view (HTML) — code delta + chapter delta vs `n-1`. |
-| `GET` | `/api/pr/:id` | JSON for the latest revision (used by frontend). |
-| `GET` | `/api/pr/:id/rev/:n` | JSON for a pinned revision. |
+| `GET` | `/api/pr/:id` | JSON for the latest revision. Not used by the T1.9 frontend; the `/pr/:id` redirect covers "latest". |
+| `GET` | `/api/pr/:id/rev/:n` | JSON for a pinned revision (T1.9): `200` [revision view](#revision-view-json), `400`/`404`/`500` error bodies. |
 | `GET` | `/api/pr/:id/revisions` | List revisions in order. |
 | `GET` | `/api/pr/:id/comment-counts` | Counts by revision — drives the header pill. |
-| `POST` | `/api/pr` | Upsert pull + create revision (called by CLI). Returns `{pull_id, revision_number, url}`. |
+| `POST` | `/api/pr` | Upsert pull + create revision (called by CLI). Returns `{pull_id, revision_number, url}`. The body must be declared `application/json`, else `415` (T1.9). |
 | `POST` | `/api/pr/:id/rev/:n/comments` | Add a comment (hunk/chapter/PR-scoped). |
 | `POST` | `/api/pr/:id/rev/:n/chapters/:cid/approve` | Approve a chapter on a revision. |
 | `POST` | `/api/pr/:id/rev/:n/generate` | SSE stream — chapter generation + decisions. |
@@ -114,6 +114,21 @@ data: {}
 event: error
 data: { "message": "…", "code": "rate_limit | over_cap | …" }
 ```
+
+### Revision view JSON
+
+`GET /api/pr/:id/rev/:n` returns the `RevisionView` exported from `src/revision-view.ts` (T1.9). Those types are the contract; `buildRevisionView` is a pure function of the DB snapshot `src/db/snapshot.ts` reads. Every key is always present (missing data is `null` or `[]`), and every string is raw. The page's `esc()` is the only escaping point.
+
+- **Chapters.** Rows sort by `(order, id)`; each chapter's `hunk_ids` keep only ids in this revision, and a chapter left empty is dropped. Hunks no chapter covers go into one trailing synthetic chapter, `{id: 'unchaptered', marker: '§ —', title: 'Unchaptered'}`, so a revision published before T1.8 still renders.
+- **Invariants** (each has a test in `src/revision-view.test.ts`):
+  - I1: every `hunks` key appears in some chapter's `hunk_ids`.
+  - I2: every `hunk_ids` entry is a `hunks` key.
+  - I3: `chapters` is empty exactly when `hunks` is.
+  - I4: exactly one chapter is `active` when `chapters` is non-empty.
+  - I5: the output is independent of the order of the snapshot's row arrays.
+- **Line numbers.** The side comes from the content, not `hunks.kind`: a hunk with any context or `+` line is numbered from its new-file start, otherwise from its old-file start. In a hunk with both sides, `-` lines show `no: '-'`, because only one start line is stored. `\ No newline at end of file` becomes a `meta` line.
+- **Attribution.** A `NULL` or blank `hunks.agent` renders as `unattributed`, not `human`; T2.6 owns writing `human`. `pull.title` falls back to the branch, and `pull.number` is the local `pulls.id`.
+- **Errors.** `400` is `{error}` (the pull id is checked first). `404` is always `{error, latest_revision_number}`, with `null` when the pull is missing or has no revisions. `500` is `{error: 'internal error reading revision'}`. The raw URL segment is never echoed back.
 
 ## Key Decisions
 
@@ -142,6 +157,9 @@ data: { "message": "…", "code": "rate_limit | over_cap | …" }
 ## Security Considerations
 
 - **Single user, localhost only.** No auth surface. The server binds `127.0.0.1` (not `0.0.0.0`) — specifically the IPv4 address rather than the `localhost` hostname, which resolves to both `127.0.0.1` and `::1` and would let two serve processes split across address families and defeat the port probe.
+- **Host allowlist.** Every route answers only `Host: 127.0.0.1` or `localhost`; anything else gets `403` (T1.9). Binding `127.0.0.1` alone doesn't stop DNS rebinding, where a foreign page resolves its own hostname to `127.0.0.1` and reads the source-returning `GET` routes. The rebound request still carries the foreign `Host`, so it's rejected.
+- **Cross-site writes.** `POST /api/pr` answers `415` unless the body is declared `application/json` (T1.9). A foreign page can send a `text/plain` or form POST without a CORS preflight, and its `Host` is `127.0.0.1`, so the Host allowlist alone doesn't stop it. A JSON POST forces the preflight, which fails because no CORS headers are ever sent.
+- **Response headers.** Every response, errors included, carries `Cache-Control: no-store` (revision JSON holds repo source, and the `/pr/:id` redirect target moves on each publish) and `X-Content-Type-Options: nosniff`. No CORS headers are ever sent.
 - **No telemetry.** `usage` table is local-only.
 - **API key in env, never persisted.** `ANTHROPIC_API_KEY` never written to disk by reviewdev.
 - **`gh` output trust.** `gh pr view --json url` output is interpolated into HTML as a link; treat as untrusted and URL-encode. Realistically the user controls the GitHub remote, so the threat surface is small.
