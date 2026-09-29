@@ -64,10 +64,14 @@ describe('web/index.html — T1.7 demo import', () => {
 
   it('is data-driven — renders from a revision object, not hardcoded content', () => {
     expect(html).toContain('function renderRevision');
-    expect(html).toContain('window.__REVISION__');
-    // Falls back to the live route the demo view will hydrate from (T1.9).
+    // The live route is the only data source; nothing injects a snapshot (T1.9).
     expect(html).toContain('/api/pr/');
+    expect(html).not.toContain('__REVISION__');
     expect(html).toContain('const DEMO_REVISION');
+  });
+
+  it('has exactly one inline script, which the DOM harness runs', () => {
+    expect([...html.matchAll(/<script\b/g)]).toHaveLength(1);
   });
 
   it('renders the FR-P0.6 surface from data — chapters, spans, hunks, attribution', () => {

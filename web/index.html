@@ -395,6 +395,13 @@
       .pr-meta .dotline {
         color: var(--muted-2);
       }
+      .pr-meta .pinned {
+        color: var(--ink-2);
+      }
+      .pr-meta .pinned a {
+        color: var(--rust);
+        text-underline-offset: 2px;
+      }
       .author-chip {
         display: inline-flex;
         align-items: center;
@@ -686,9 +693,12 @@
         padding: 0 14px;
         border-left: 2px solid transparent;
       }
+      /* min-width in ch so a signed '+1234' never overflows into the code. */
       .hunk-body .line .ln {
         color: var(--muted-2);
-        width: 32px;
+        min-width: 5ch;
+        text-align: right;
+        margin-right: 1ch;
         display: inline-block;
       }
       .hunk-body .line.add {
@@ -709,6 +719,11 @@
       }
       .hunk-body .line.ctx {
         color: var(--ink-3);
+      }
+      /* git's "\ No newline at end of file" and unreadable stored lines. */
+      .hunk-body .line.meta {
+        color: var(--muted);
+        font-style: italic;
       }
 
       .chapter-foot {
@@ -869,6 +884,77 @@
         }
       }
 
+      /* Full-panel error and empty-revision states. */
+      .state {
+        padding: 44px 4px;
+        max-width: 64ch;
+      }
+      .state .pre-label {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        letter-spacing: 0.18em;
+        color: var(--rust);
+        text-transform: uppercase;
+        margin: 0;
+      }
+      .state h1 {
+        font-family: var(--serif);
+        font-weight: 400;
+        font-size: 40px;
+        line-height: 1.1;
+        letter-spacing: -0.012em;
+        margin: 18px 0 18px;
+        color: var(--ink);
+      }
+      .state h1:focus,
+      .state h3:focus {
+        outline: 0;
+      }
+      .state .lede {
+        font-size: 18px;
+        line-height: 1.55;
+        color: var(--ink-2);
+        margin: 0 0 16px;
+      }
+      .state-detail {
+        font-size: 14px;
+        color: var(--muted);
+        margin: 0 0 16px;
+        overflow-wrap: anywhere;
+      }
+      .state code {
+        font-family: var(--mono);
+        font-size: 0.9em;
+        background: var(--soft);
+        border: 1px solid var(--border-soft);
+        border-radius: 3px;
+        padding: 0 4px;
+        color: var(--ink-2);
+      }
+      .state-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 24px;
+      }
+      .state-actions a.btn {
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+      }
+      .state-empty {
+        padding: 0;
+      }
+      .state-empty .head {
+        margin: 6px 0 0;
+      }
+      .toc-empty,
+      .rail-empty {
+        margin: 0;
+        font-style: italic;
+        color: var(--muted);
+      }
+
       @media (max-width: 1080px) {
         .body-3col {
           grid-template-columns: 1fr;
@@ -949,10 +1035,9 @@
         'use strict';
 
         // ---- Demo revision -------------------------------------------------------
-        // Standalone fallback when no server has injected `window.__REVISION__` and
-        // the /api fetch is unavailable (T1.9 wires the live route). This is the
-        // Concept 01 reference content expressed as data — the render is a pure
-        // function of this object, so live API data drops in unchanged.
+        // Renders only when the page is opened standalone (file:// or a path outside
+        // /pr/), never on a served revision URL. It must pass validateRevision; it is
+        // looser than RevisionView (src/revision-view.ts), which is the API contract.
         const DEMO_REVISION = {
           repo_slug: 'acmeco/api',
           pull: {
@@ -988,6 +1073,8 @@
               ],
               hunk_ids: ['h1', 'h2', 'h3'],
               session: { number: 4, agent: 'Claude' },
+              ask_placeholder:
+                'Why pgvector instead of Pinecone? What happens if the index rebuild fails halfway?',
             },
             { id: 'c4', order: 4, title: 'Schema changes', read: { done: 0, total: 9 } },
             { id: 'c5', order: 5, title: 'API surface', read: { done: 0, total: 22 } },
@@ -1101,7 +1188,8 @@
           );
         }
 
-        function tocItem(ch, activeId) {
+        // position is 1-based in the rendered list; ch.order is a sort key and can have gaps.
+        function tocItem(ch, activeId, position) {
           const done = ch.read && ch.read.total > 0 && ch.read.done >= ch.read.total;
           const isActive = ch.id === activeId;
           const frac = ch.read ? ch.read.done + ' of ' + ch.read.total : '';
@@ -1114,17 +1202,20 @@
             (isActive ? ' aria-current="page"' : '') +
             '>' +
             '<span class="toc-n" aria-hidden="true">' +
-            esc(ch.order) +
+            esc(position) +
             '</span>' +
             '<span>' +
             esc(ch.title) +
             '</span>' +
-            '<span class="toc-frac"><span class="sr-only">Read </span>' +
-            esc(frac) +
-            '</span>' +
+            (ch.read
+              ? '<span class="toc-frac"><span class="sr-only">Read </span>' + esc(frac) + '</span>'
+              : '') +
             '</button></li>'
           );
         }
+
+        // Whitelisted so revision data can't inject a CSS class.
+        const LINE_KINDS = ['add', 'del', 'ctx', 'meta'];
 
         function hunkSection(h) {
           if (!h) return '';
@@ -1142,7 +1233,7 @@
             .map(
               (ln) =>
                 '<span class="line ' +
-                esc(ln.kind) +
+                (LINE_KINDS.includes(ln.kind) ? ln.kind : 'ctx') +
                 '"><span class="ln">' +
                 esc(ln.no) +
                 '</span>' +
@@ -1190,7 +1281,7 @@
             ? 'scoped to this chapter · session ' + ch.session.number + ' · ' + ch.session.agent
             : 'scoped to this chapter';
           return (
-            '<article class="main">' +
+            '<article class="main" id="chapterMain">' +
             '<header class="marker-row"><div>' +
             '<span class="marker">' +
             esc(ch.marker || '§ ' + ch.order) +
@@ -1216,8 +1307,9 @@
             '<span class="scope">' +
             esc(sess) +
             '</span></div>' +
-            '<input type="text" id="askAuthor" name="ask" autocomplete="off" ' +
-            'placeholder="Why pgvector instead of Pinecone? What happens if the index rebuild fails halfway?">' +
+            '<input type="text" id="askAuthor" name="ask" autocomplete="off" placeholder="' +
+            esc(ch.ask_placeholder || 'Ask the agent about this chapter') +
+            '">' +
             '<p class="hint" id="askHint" aria-live="polite"><kbd>⌘</kbd><kbd>↩</kbd> to ask · ' +
             'the agent that wrote this section answers, with the original session context</p>' +
             '</form></article>'
@@ -1282,22 +1374,82 @@
           return html;
         }
 
+        // ---- Page state ----------------------------------------------------------
+        const panelEl = document.getElementById('panel-01');
+        const SKELETON_HTML = panelEl.innerHTML;
+        // { rev, activeId } while a revision is on screen; null for skeleton and errors.
+        let current = null;
+
+        function renderSkeleton() {
+          current = null;
+          panelEl.innerHTML = SKELETON_HTML;
+          panelEl.setAttribute('aria-busy', 'true');
+        }
+
         // ---- Top-level render ----------------------------------------------------
+        // Copy never says "since the last revision": consecutive empty publishes
+        // dedupe into one revision.
+        function emptyMain(rev) {
+          const pull = rev.pull || {};
+          const base = pull.base ? '<code>' + esc(pull.base) + '</code>' : 'its base branch';
+          return (
+            '<article class="main" id="chapterMain"><section class="state state-empty">' +
+            '<span class="marker">Revision ' +
+            esc(rev.revision_number) +
+            ' · no hunks</span>' +
+            '<h3 class="head" id="stateTitle" tabindex="-1">Nothing to review in this revision</h3>' +
+            '<p>This revision has no line-level changes. Either the branch matches ' +
+            base +
+            ', or every change is one that git diff shows without lines: a rename, a mode change, or a binary file.</p>' +
+            (pull.branch
+              ? '<p>Commit changes on <code>' +
+                esc(pull.branch) +
+                '</code> and run <code>reviewdev publish</code> again.</p>'
+              : '') +
+            '</section></article>'
+          );
+        }
+
+        function pinnedIndicator(rev) {
+          const n = rev.revision_number;
+          const m = rev.latest_revision_number;
+          if (typeof n !== 'number' || typeof m !== 'number') return '';
+          const latest =
+            n < m && rev.pull
+              ? ' · <a href="/pr/' + esc(encodeURIComponent(rev.pull.id)) + '">Go to latest</a>'
+              : '';
+          return (
+            '<span class="dotline" aria-hidden="true">·</span><span class="pinned">Revision ' +
+            esc(n) +
+            ' of ' +
+            esc(m) +
+            latest +
+            '</span>'
+          );
+        }
+
         function renderRevision(rev) {
           const chapters = rev.chapters || [];
+          const hunks = rev.hunks || {};
+          // Server invariant I3: no hunks exactly when no chapters.
+          const isEmpty = Object.keys(hunks).length === 0;
           const active = chapters.find((c) => c.active) || chapters[0] || null;
           const activeId = active ? active.id : null;
+          current = { rev, activeId };
           const stats = rev.stats || {};
-          const statLine =
-            '+' +
-            (stats.additions || 0).toLocaleString() +
-            ' / −' +
-            (stats.deletions || 0).toLocaleString() +
-            ' across ' +
-            (stats.files || 0) +
-            ' files';
+          // '+0 / −0 across 0 files' would be false for a rename-only revision.
+          const statLine = isEmpty
+            ? 'No line-level changes'
+            : '+' +
+              (stats.additions || 0).toLocaleString() +
+              ' / −' +
+              (stats.deletions || 0).toLocaleString() +
+              ' across ' +
+              (stats.files || 0) +
+              ' files';
           const url =
             'review.dev/' + (rev.repo_slug || 'repo') + '/pr/' + (rev.pull ? rev.pull.number : '');
+          const authors = rev.authors || [];
 
           const html =
             '<p class="pre-label">Read it like a doc</p>' +
@@ -1325,37 +1477,184 @@
             '<span class="stats">' +
             esc(statLine) +
             '</span>' +
-            '<span class="dotline" aria-hidden="true">·</span><span>Written by</span>' +
-            (rev.authors || []).map(authorChip).join('') +
+            pinnedIndicator(rev) +
+            // A zero-hunk revision has no authors; a bare 'Written by' would read as broken.
+            (authors.length
+              ? '<span class="dotline" aria-hidden="true">·</span><span>Written by</span>' +
+                authors.map(authorChip).join('')
+              : '') +
             '</p></header>' +
             '<div class="body-3col">' +
             '<nav class="rail-l" aria-label="Chapters"><p class="rail-label">Chapters</p>' +
-            '<ul class="toc-list">' +
-            chapters.map((c) => tocItem(c, activeId)).join('') +
-            '</ul>' +
+            (isEmpty
+              ? '<p class="toc-empty">No chapters</p>'
+              : '<ul class="toc-list">' +
+                chapters.map((c, i) => tocItem(c, activeId, i + 1)).join('') +
+                '</ul>') +
             '<p class="kbd-hint" aria-label="Keyboard shortcuts">' +
             '<span><kbd>j</kbd><kbd>k</kbd> next / prev chapter</span>' +
             '<span><kbd>c</kbd> comment <kbd>r</kbd> recompose</span>' +
             '<span><kbd>?</kbd> all shortcuts</span></p></nav>' +
-            chapterMain(active, rev.hunks || {}) +
+            (isEmpty ? emptyMain(rev) : chapterMain(active, hunks)) +
             '<aside class="rail-r" aria-label="Author session details">' +
-            railRight(rev) +
+            (railRight(rev) ||
+              '<p class="rail-empty">No agent session linked to this pull yet.</p>') +
             '</aside>' +
             '</div></section>';
 
-          const panel = document.getElementById('panel-01');
-          panel.innerHTML = html;
-          panel.setAttribute('aria-busy', 'false');
+          panelEl.innerHTML = html;
+          panelEl.setAttribute('aria-busy', 'false');
           document.title = (rev.pull ? rev.pull.title : 'review.dev') + ' — review.dev';
-          wireInteractions();
+          wireToc();
+          wireChapter();
+        }
+
+        // ---- Error state ---------------------------------------------------------
+        // Full-panel and not dismissible: there is no revision underneath it.
+        // - action 'retry' re-fetches.
+        // - action 'reload' suits version skew, where a re-fetch returns the same unreadable body.
+        // - A 404 has no retry: revisions are immutable.
+        const RESTART_HINT =
+          'Check that reviewdev serve is still running for this repo, then try again.';
+        const ERROR_COPY = {
+          'bad-url': {
+            title: 'Not a revision address',
+            lede: () =>
+              'Revision pages live at /pr/<id>/rev/<n>, where both are positive whole numbers.',
+          },
+          'not-found': {
+            title: 'Revision not found',
+            lede: (err) => (err.serverMessage || 'The server has no such revision') + '.',
+          },
+          http: {
+            title: "Couldn't load this revision",
+            lede: (err) =>
+              'The review.dev server answered HTTP ' +
+              err.status +
+              '. The serve terminal has an api.error line with the cause.',
+            action: 'retry',
+          },
+          network: {
+            title: "Couldn't reach the review.dev server",
+            lede: () => RESTART_HINT,
+            action: 'retry',
+          },
+          timeout: {
+            title: "The review.dev server didn't answer",
+            lede: () =>
+              'No response after ' + FETCH_TIMEOUT_MS / 1000 + ' seconds. ' + RESTART_HINT,
+            action: 'retry',
+          },
+          malformed: {
+            title: "This revision couldn't be displayed",
+            lede: (err) =>
+              "The server's response isn't a revision this page can read: " +
+              err.reason +
+              '. The page and the server may be from different reviewdev versions.',
+            action: 'reload',
+          },
+        };
+        // not-found is absent because its lede already is the server message.
+        const SHOWS_SERVER_MESSAGE = ['bad-url', 'http'];
+
+        function renderError(err, route) {
+          current = null;
+          const copy = ERROR_COPY[err.kind] || ERROR_COPY.http;
+          const detail =
+            SHOWS_SERVER_MESSAGE.includes(err.kind) && typeof err.serverMessage === 'string'
+              ? '<p class="state-detail">Server said: <code>' +
+                esc(err.serverMessage) +
+                '</code></p>'
+              : '';
+          let action = '';
+          if (copy.action === 'retry')
+            action = '<button type="button" class="btn primary" id="retryBtn">Try again</button>';
+          else if (copy.action === 'reload')
+            action =
+              '<button type="button" class="btn primary" id="reloadBtn">Reload page</button>';
+          else if (err.kind === 'not-found' && route && typeof err.latest === 'number')
+            action =
+              '<a class="btn" href="/pr/' +
+              esc(encodeURIComponent(route.pullSeg)) +
+              '">Open the latest revision</a>';
+
+          panelEl.innerHTML =
+            '<section class="state state-error" role="alert" aria-labelledby="stateTitle">' +
+            '<p class="pre-label">' +
+            esc(route ? 'Pull ' + route.pullSeg + ' · revision ' + route.revSeg : 'review.dev') +
+            '</p>' +
+            '<h1 id="stateTitle" tabindex="-1">' +
+            esc(copy.title) +
+            '</h1>' +
+            '<p class="lede">' +
+            esc(copy.lede(err)) +
+            '</p>' +
+            detail +
+            '<div class="state-actions">' +
+            action +
+            '</div></section>';
+          panelEl.setAttribute('aria-busy', 'false');
+          document.title = copy.title + ' — review.dev';
+
+          const retry = document.getElementById('retryBtn');
+          if (retry) retry.addEventListener('click', () => loadRevision(route, true));
+          const reload = document.getElementById('reloadBtn');
+          if (reload) reload.addEventListener('click', () => location.reload());
         }
 
         // ---- Chapter interactions: TOC selection, recompose, ask ----------------
-        function wireInteractions() {
-          document.querySelectorAll('.toc-item').forEach((item) => {
-            item.addEventListener('click', () => selectToc(item));
+        function selectChapter(id, { focusToc = false } = {}) {
+          if (!current) return;
+          const ch = current.rev.chapters.find((c) => String(c.id) === String(id));
+          if (!ch) return;
+          // Re-rendering the active chapter would discard the ask draft.
+          const switching = String(current.activeId) !== String(ch.id);
+          // Built before any state changes: a render throw must not leave the TOC and panel disagreeing.
+          let html = null;
+          if (switching) {
+            try {
+              html = chapterMain(ch, current.rev.hunks);
+            } catch (err) {
+              console.error('review.dev: chapter render failed —', ch.id, err);
+              renderError(
+                {
+                  kind: 'malformed',
+                  reason: 'the page could not render chapter ' + (ch.marker || ch.id),
+                },
+                revisionRoute(location.pathname),
+              );
+              return;
+            }
+          }
+          // aria-current is reasserted even for the active chapter, so the TOC can't drift.
+          let item = null;
+          document.querySelectorAll('.toc-item').forEach((i) => {
+            if (i.dataset.toc === String(ch.id)) {
+              i.setAttribute('aria-current', 'page');
+              item = i;
+            } else i.removeAttribute('aria-current');
           });
+          if (focusToc && item) item.focus();
+          if (!switching) return;
+          current.activeId = ch.id;
+          document.getElementById('chapterMain').outerHTML = html;
+          wireChapter();
+          const main = document.getElementById('chapterMain');
+          if (main.getBoundingClientRect().top < 0) main.scrollIntoView({ block: 'start' });
+          const chapters = current.rev.chapters;
+          announce(
+            'Chapter ' + (chapters.indexOf(ch) + 1) + ' of ' + chapters.length + ': ' + ch.title,
+          );
+        }
 
+        function wireToc() {
+          document.querySelectorAll('.toc-item').forEach((item) => {
+            item.addEventListener('click', () => selectChapter(item.dataset.toc));
+          });
+        }
+
+        // #chapterMain is replaced on every chapter switch, so its handlers are re-wired each time.
+        function wireChapter() {
           const recompose = document.getElementById('recomposeBtn');
           if (recompose) {
             recompose.addEventListener('click', () => {
@@ -1394,25 +1693,28 @@
           }
         }
 
-        function selectToc(item) {
-          document.querySelectorAll('.toc-item').forEach((i) => i.removeAttribute('aria-current'));
-          item.setAttribute('aria-current', 'page');
-        }
-
         // Chapter nav (j/k) and chapter shortcuts (r/c), scoped away from inputs.
         document.addEventListener('keydown', (e) => {
+          // Modified keys belong to the browser: Cmd+C copies, Ctrl/Cmd+R reloads.
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
           if (e.target.matches('input, textarea, [contenteditable]')) return;
-          const items = [...document.querySelectorAll('.toc-item')];
-          if (!items.length) return;
-          const idx = items.findIndex((i) => i.getAttribute('aria-current') === 'page');
-          if (e.key === 'j') {
+          // The open help dialog is modal: nothing behind it changes.
+          if (helpDialog.classList.contains('open')) return;
+          if (e.key === 'j' || e.key === 'k') {
+            if (!current || !current.rev.chapters.length) return;
             e.preventDefault();
-            selectToc(items[Math.min(items.length - 1, idx + 1)]);
-            announce('Chapter selected');
-          } else if (e.key === 'k') {
-            e.preventDefault();
-            selectToc(items[Math.max(0, idx - 1)]);
-            announce('Chapter selected');
+            const chapters = current.rev.chapters;
+            const idx = chapters.findIndex((c) => String(c.id) === String(current.activeId));
+            const next = idx + (e.key === 'j' ? 1 : -1);
+            if (next < 0 || next >= chapters.length) {
+              announce(
+                e.key === 'j' ? 'Already at the last chapter' : 'Already at the first chapter',
+              );
+              return;
+            }
+            const active = document.activeElement;
+            const focusToc = !!active && active.classList.contains('toc-item');
+            selectChapter(chapters[next].id, { focusToc });
           } else if (e.key === 'r') {
             e.preventDefault();
             const btn = document.getElementById('recomposeBtn');
@@ -1472,48 +1774,138 @@
           if (e.key === 'Escape') closeHelp();
         });
 
-        // ---- Boot ----------------------------------------------------------------
-        // Data source order: server-injected snapshot → live API → standalone demo.
-        // The /pr/:id/rev/:n → /api/pr/:id/rev/:n route mapping lands in T1.9.
-        function revisionApiPath() {
-          const m = location.pathname.match(/\/pr\/([^/]+)\/rev\/([^/]+)/);
-          return m ? '/api/pr/' + m[1] + '/rev/' + m[2] : null;
-        }
+        // ---- Data loading --------------------------------------------------------
+        // One budget for both the request and reading its body, in ms.
         const FETCH_TIMEOUT_MS = 8000;
-        async function boot() {
-          let data = window.__REVISION__ || null;
-          if (!data) {
-            const p = revisionApiPath();
-            if (p) {
-              // A matched path means real data was expected, so:
-              // - a failure is logged, not swallowed (the standalone case has no path);
-              // - a hung request is aborted after FETCH_TIMEOUT_MS so the fallback fires;
-              // - the user-facing error state ships with the serving route (T1.9).
-              // Until then we still fall back to the demo so the page isn't blank.
-              const ac = new AbortController();
-              const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
-              try {
-                const r = await fetch(p, {
-                  headers: { accept: 'application/json' },
-                  signal: ac.signal,
-                });
-                if (!r.ok) console.error('review.dev: revision fetch failed —', r.status, p);
-                else {
-                  // Read text first: an empty/whitespace body is a distinct case
-                  // from malformed JSON — r.json() would throw on both and blur them.
-                  const text = await r.text();
-                  if (!text.trim())
-                    console.error('review.dev: revision fetch returned an empty body —', p);
-                  else data = JSON.parse(text); // malformed non-empty body throws → caught below
-                }
-              } catch (err) {
-                console.error('review.dev: revision fetch error —', p, err);
-              } finally {
-                clearTimeout(timer);
-              }
+
+        // Returns the first problem as a sentence fragment, or null when none of these checks
+        // fail. Render can still throw on a shape these don't cover; loadRevision catches that.
+        function validateRevision(rev) {
+          const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+          if (!isObject(rev)) return 'the response is not a JSON object';
+          if (!isObject(rev.pull) || typeof rev.pull.title !== 'string')
+            return 'pull needs a string title';
+          if (!Array.isArray(rev.chapters)) return 'chapters is not an array';
+          if (!isObject(rev.hunks)) return 'hunks is not an object keyed by hunk id';
+          for (const [id, h] of Object.entries(rev.hunks)) {
+            if (!isObject(h) || typeof h.file_path !== 'string' || !Array.isArray(h.lines))
+              return 'hunk ' + id.slice(0, 12) + ' needs a string file_path and a lines array';
+            if (!h.lines.every(isObject))
+              return 'hunk ' + id.slice(0, 12) + ' has a line that is not an object';
+          }
+          for (const c of rev.chapters) {
+            if (!isObject(c) || (typeof c.id !== 'string' && typeof c.id !== 'number'))
+              return 'a chapter has no string or number id';
+            if (c.hunk_ids !== undefined && !Array.isArray(c.hunk_ids))
+              return 'chapter ' + (c.marker || c.id) + ' has hunk_ids that is not an array';
+          }
+          for (const c of rev.chapters) {
+            for (const hid of c.hunk_ids || []) {
+              if (!Object.prototype.hasOwnProperty.call(rev.hunks, hid))
+                return (
+                  'chapter ' +
+                  (c.marker || c.id) +
+                  ' references hunk ' +
+                  String(hid).slice(0, 12) +
+                  ', which the response does not include'
+                );
             }
           }
-          renderRevision(data || DEMO_REVISION);
+          return null;
+        }
+
+        function errorKindForStatus(status) {
+          if (status === 400) return 'bad-url';
+          if (status === 404) return 'not-found';
+          return 'http';
+        }
+
+        // Resolves to { ok: true, rev } or { ok: false, kind, status?, serverMessage?, latest?, reason? }.
+        // Rejects only when validateRevision throws on a crafted body; loadRevision catches that.
+        async function fetchRevision(api) {
+          const ac = new AbortController();
+          const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
+          const fail = (err, cause) => {
+            console.error('review.dev: revision load failed —', err.kind, api, cause || '');
+            return Object.assign({ ok: false }, err);
+          };
+          let r;
+          let text;
+          try {
+            r = await fetch(api, { headers: { accept: 'application/json' }, signal: ac.signal });
+            text = await r.text();
+          } catch (err) {
+            return fail({ kind: ac.signal.aborted ? 'timeout' : 'network' }, err);
+          } finally {
+            clearTimeout(timer);
+          }
+          if (!r.ok) {
+            const err = { kind: errorKindForStatus(r.status), status: r.status };
+            try {
+              const body = JSON.parse(text);
+              if (body && typeof body.error === 'string')
+                err.serverMessage = body.error.slice(0, 300);
+              if (body && typeof body.latest_revision_number === 'number')
+                err.latest = body.latest_revision_number;
+            } catch {
+              // A non-JSON error body still gets the status-based screen.
+            }
+            return fail(err, 'HTTP ' + r.status);
+          }
+          if (!text.trim()) return fail({ kind: 'malformed', reason: 'empty response' });
+          let rev;
+          try {
+            rev = JSON.parse(text);
+          } catch (err) {
+            return fail({ kind: 'malformed', reason: 'not JSON' }, err);
+          }
+          const problem = validateRevision(rev);
+          if (problem) return fail({ kind: 'malformed', reason: problem });
+          return { ok: true, rev };
+        }
+
+        // - The skeleton render removes #retryBtn, so a retry can't be double-submitted.
+        // - A body that makes validateRevision or renderRevision throw gets the
+        //   malformed screen; otherwise the panel would stay on the busy skeleton.
+        // - Focus moves only on a retry; the initial load leaves it where the browser put it.
+        async function loadRevision(route, isRetry) {
+          renderSkeleton();
+          let result;
+          try {
+            result = await fetchRevision(route.api);
+            if (result.ok) renderRevision(result.rev);
+          } catch (err) {
+            console.error('review.dev: revision render failed —', route.api, err);
+            result = { ok: false, kind: 'malformed', reason: 'the page could not render it' };
+          }
+          if (!result.ok) renderError(result, route);
+          if (!isRetry) return;
+          const target = result.ok
+            ? document.querySelector('.toc-item[aria-current="page"]')
+            : document.querySelector('.state-actions button, .state-actions a');
+          (target || document.getElementById('stateTitle')).focus();
+          if (result.ok) announce('Revision loaded');
+        }
+
+        // ---- Boot ----------------------------------------------------------------
+        // Anchored, so a longer path such as /pr/:id/rev/:n/diff never loads this view.
+        // Segments pass through unchecked: the server is the only id validator, and
+        // its 400 maps to the bad-url screen.
+        function revisionRoute(pathname) {
+          const m = /^\/pr\/([^/]+)\/rev\/([^/]+)$/.exec(pathname);
+          return m
+            ? { pullSeg: m[1], revSeg: m[2], api: '/api/pr/' + m[1] + '/rev/' + m[2] }
+            : null;
+        }
+
+        // A served /pr/ path that isn't a revision route is an error, never the demo,
+        // so an unrecognised route fails loudly instead of showing fake data.
+        function boot() {
+          const route = revisionRoute(location.pathname);
+          if (route) loadRevision(route, false);
+          else if (location.protocol !== 'file:' && location.pathname.startsWith('/pr/'))
+            renderError({ kind: 'bad-url' }, null);
+          else renderRevision(DEMO_REVISION);
         }
         boot();
       })();
